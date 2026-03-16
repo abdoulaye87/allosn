@@ -17,7 +17,7 @@ interface Ad {
   title: string
   description: string
   price: number | null
-  images: string
+  images: string[]
   city: string
   phone: string | null
   whatsapp: string | null
@@ -25,8 +25,8 @@ interface Ad {
   isPremium: boolean
   isFeatured: boolean
   createdAt: string
-  category: { name: string; slug: string }
-  user: { name: string; phone: string | null }
+  category?: { name: string; slug: string; id: string }
+  categoryId?: string
 }
 
 export default function AdDetailPage() {
@@ -42,20 +42,19 @@ export default function AdDetailPage() {
   useEffect(() => {
     const fetchAd = async () => {
       try {
-        const res = await fetch(`/api/ads/${id}`)
-        if (res.ok) {
-          const data = await res.json()
-          setAd(data)
+        // Fetch all ads and find the one with matching ID
+        const res = await fetch('/api/firebase-ads?limit=100')
+        const data = await res.json()
+        const foundAd = data.ads?.find((a: Ad) => a.id === id)
+        
+        if (foundAd) {
+          setAd(foundAd)
           
-          // Increment views
-          await fetch(`/api/ads/${id}/view`, { method: 'POST' })
-          
-          // Fetch similar ads
-          if (data.categoryId) {
-            const similarRes = await fetch(`/api/ads?category=${data.categoryId}&limit=4`)
-            const similarData = await similarRes.json()
-            setSimilarAds((similarData.ads || []).filter((a: Ad) => a.id !== id))
-          }
+          // Find similar ads from same category
+          const similar = data.ads?.filter((a: Ad) => 
+            a.categoryId === foundAd.categoryId && a.id !== id
+          ).slice(0, 4) || []
+          setSimilarAds(similar)
         }
       } catch (error) {
         console.error('Error fetching ad:', error)
@@ -115,7 +114,7 @@ export default function AdDetailPage() {
     )
   }
 
-  const images = JSON.parse(ad.images || '[]')
+  const images = ad.images || []
   const mainImage = images[currentImageIndex] || 'https://via.placeholder.com/800x600?text=AlloSN'
 
   return (
@@ -212,12 +211,10 @@ export default function AdDetailPage() {
         <div className="bg-white rounded-2xl p-4 shadow-sm">
           <div className="flex items-center gap-3">
             <div className="w-12 h-12 bg-orange-100 rounded-full flex items-center justify-center">
-              <span className="text-orange-600 font-bold text-lg">
-                {ad.user?.name?.charAt(0) || 'U'}
-              </span>
+              <span className="text-orange-600 font-bold text-lg">A</span>
             </div>
             <div className="flex-1">
-              <p className="font-semibold text-gray-800">{ad.user?.name || 'Utilisateur'}</p>
+              <p className="font-semibold text-gray-800">Annonceur</p>
               <div className="flex items-center gap-1 text-green-600 text-sm">
                 <Shield className="h-3 w-3" />
                 <span>Vérifié</span>
@@ -235,18 +232,20 @@ export default function AdDetailPage() {
         </div>
 
         {/* Category */}
-        <div className="bg-white rounded-2xl p-4 shadow-sm">
-          <Link 
-            href={`/categorie/${ad.category?.slug}`}
-            className="flex items-center justify-between"
-          >
-            <div>
-              <p className="text-xs text-gray-400 uppercase">Catégorie</p>
-              <p className="font-medium text-gray-800">{ad.category?.name}</p>
-            </div>
-            <ChevronRight className="h-5 w-5 text-gray-400" />
-          </Link>
-        </div>
+        {ad.category && (
+          <div className="bg-white rounded-2xl p-4 shadow-sm">
+            <Link 
+              href={`/categorie/${ad.category.slug}`}
+              className="flex items-center justify-between"
+            >
+              <div>
+                <p className="text-xs text-gray-400 uppercase">Catégorie</p>
+                <p className="font-medium text-gray-800">{ad.category.name}</p>
+              </div>
+              <ChevronRight className="h-5 w-5 text-gray-400" />
+            </Link>
+          </div>
+        )}
 
         {/* Similar ads */}
         {similarAds.length > 0 && (
@@ -254,7 +253,7 @@ export default function AdDetailPage() {
             <h2 className="font-semibold text-gray-800 mb-3">Annonces similaires</h2>
             <div className="grid grid-cols-2 gap-3">
               {similarAds.slice(0, 4).map((similarAd) => (
-                <AdCard key={similarAd.id} {...similarAd} />
+                <AdCard key={similarAd.id} {...similarAd} images={JSON.stringify(similarAd.images)} />
               ))}
             </div>
           </div>
@@ -285,7 +284,7 @@ export default function AdDetailPage() {
           </a>
         )}
         {!ad.phone && !ad.whatsapp && (
-          <Link href="/connexion" className="flex-1">
+          <Link href="/" className="flex-1">
             <Button className="w-full bg-orange-500 hover:bg-orange-600 text-white rounded-xl py-3">
               Contacter
             </Button>

@@ -8,7 +8,7 @@ interface Ad {
   title: string
   description: string
   price: number | null
-  images: string
+  images: string[]
   city: string
   views: number
   isPremium: boolean
@@ -29,7 +29,7 @@ export default function FeaturedAds({ title = 'Annonces en vedette', featured = 
   useEffect(() => {
     const fetchAds = async () => {
       try {
-        const url = featured ? '/api/ads?featured=true&limit=6' : '/api/ads?limit=6'
+        const url = featured ? '/api/firebase-ads?featured=true&limit=6' : '/api/firebase-ads?limit=6'
         const res = await fetch(url)
         const data = await res.json()
         setAds(data.ads || [])
@@ -64,7 +64,7 @@ export default function FeaturedAds({ title = 'Annonces en vedette', featured = 
       <h2 className="text-lg font-bold text-gray-800 mb-3">{title}</h2>
       <div className="grid grid-cols-2 gap-3">
         {ads.map((ad) => (
-          <AdCard key={ad.id} {...ad} />
+          <AdCard key={ad.id} {...ad} images={JSON.stringify(ad.images)} />
         ))}
       </div>
     </div>

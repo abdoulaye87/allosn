@@ -20,7 +20,7 @@ export default function SearchBar({ onSearch }: SearchBarProps) {
   const [showCityDropdown, setShowCityDropdown] = useState(false)
 
   useEffect(() => {
-    fetch('/api/cities')
+    fetch('/api/firebase-cities')
       .then(res => res.json())
       .then(data => setCities(data))
       .catch(console.error)

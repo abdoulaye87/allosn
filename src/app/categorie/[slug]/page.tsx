@@ -5,7 +5,7 @@ import { useParams } from 'next/navigation'
 import MobileHeader from '@/components/layout/MobileHeader'
 import BottomNav from '@/components/layout/BottomNav'
 import AdCard from '@/components/ads/AdCard'
-import { ArrowLeft, Filter, ChevronDown } from 'lucide-react'
+import { ArrowLeft, ChevronDown } from 'lucide-react'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 
@@ -15,7 +15,6 @@ interface Category {
   slug: string
   icon: string
   color: string
-  children?: { id: string; name: string; slug: string }[]
 }
 
 interface Ad {
@@ -23,13 +22,13 @@ interface Ad {
   title: string
   description: string
   price: number | null
-  images: string
+  images: string[]
   city: string
   views: number
   isPremium: boolean
   isFeatured: boolean
   createdAt: string
-  category: { name: string; slug: string }
+  category?: { name: string; slug: string }
 }
 
 export default function CategoryPage() {
@@ -46,14 +45,14 @@ export default function CategoryPage() {
     const fetchData = async () => {
       try {
         // Fetch categories
-        const catRes = await fetch('/api/categories')
+        const catRes = await fetch('/api/firebase-categories')
         const categories = await catRes.json()
         const foundCategory = categories.find((c: Category) => c.slug === slug)
         setCategory(foundCategory)
 
         if (foundCategory) {
           // Fetch ads for this category
-          const adsRes = await fetch(`/api/ads?category=${foundCategory.id}&limit=20`)
+          const adsRes = await fetch(`/api/firebase-ads?category=${foundCategory.id}&limit=20`)
           const adsData = await adsRes.json()
           setAds(adsData.ads || [])
         }
@@ -112,27 +111,6 @@ export default function CategoryPage() {
           </div>
         </div>
 
-        {/* Subcategories */}
-        {category?.children && category.children.length > 0 && (
-          <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
-            <Link
-              href={`/categorie/${slug}`}
-              className="flex-shrink-0 px-4 py-2 bg-orange-500 text-white rounded-full text-sm font-medium"
-            >
-              Tout
-            </Link>
-            {category.children.map((sub) => (
-              <Link
-                key={sub.id}
-                href={`/categorie/${sub.slug}`}
-                className="flex-shrink-0 px-4 py-2 bg-white border border-gray-200 text-gray-600 rounded-full text-sm font-medium hover:border-orange-500 hover:text-orange-600 transition-colors"
-              >
-                {sub.name}
-              </Link>
-            ))}
-          </div>
-        )}
-
         {/* Filters */}
         <div className="flex gap-2">
           <div className="relative flex-1">
@@ -167,7 +145,7 @@ export default function CategoryPage() {
         {filteredAds.length > 0 ? (
           <div className="grid grid-cols-2 gap-3">
             {filteredAds.map((ad) => (
-              <AdCard key={ad.id} {...ad} />
+              <AdCard key={ad.id} {...ad} images={JSON.stringify(ad.images)} />
             ))}
           </div>
         ) : (

@@ -19,7 +19,6 @@ interface Category {
   icon: string
   slug: string
   color: string
-  children?: Category[]
 }
 
 interface City {
@@ -43,7 +42,6 @@ export default function PublishPage() {
   
   // Form data
   const [selectedCategory, setSelectedCategory] = useState<string>('')
-  const [selectedSubcategory, setSelectedSubcategory] = useState<string>('')
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
   const [price, setPrice] = useState('')
@@ -56,8 +54,8 @@ export default function PublishPage() {
     const fetchData = async () => {
       try {
         const [catRes, cityRes] = await Promise.all([
-          fetch('/api/categories'),
-          fetch('/api/cities')
+          fetch('/api/firebase-categories'),
+          fetch('/api/firebase-cities')
         ])
         const [catData, cityData] = await Promise.all([
           catRes.json(),
@@ -72,13 +70,10 @@ export default function PublishPage() {
     fetchData()
   }, [])
 
-  const selectedCategoryData = categories.find(c => c.id === selectedCategory)
-  const subcategories = selectedCategoryData?.children || []
-
   const handleSubmit = async () => {
     setLoading(true)
     try {
-      const res = await fetch('/api/ads', {
+      const res = await fetch('/api/firebase-ads', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -89,7 +84,7 @@ export default function PublishPage() {
           city,
           phone,
           whatsapp,
-          categoryId: selectedSubcategory || selectedCategory
+          categoryId: selectedCategory
         })
       })
       
@@ -164,10 +159,7 @@ export default function PublishPage() {
               {categories.map((category) => (
                 <button
                   key={category.id}
-                  onClick={() => {
-                    setSelectedCategory(category.id)
-                    setSelectedSubcategory('')
-                  }}
+                  onClick={() => setSelectedCategory(category.id)}
                   className={`p-4 rounded-2xl text-left transition-all ${
                     selectedCategory === category.id
                       ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/30'
@@ -178,28 +170,6 @@ export default function PublishPage() {
                 </button>
               ))}
             </div>
-
-            {subcategories.length > 0 && (
-              <div className="space-y-2">
-                <h3 className="font-medium text-gray-700">Sous-catégorie</h3>
-                <div className="space-y-2">
-                  {subcategories.map((sub) => (
-                    <button
-                      key={sub.id}
-                      onClick={() => setSelectedSubcategory(sub.id)}
-                      className={`w-full p-3 rounded-xl text-left flex items-center justify-between ${
-                        selectedSubcategory === sub.id
-                          ? 'bg-orange-100 border-2 border-orange-500 text-orange-700'
-                          : 'bg-white border border-gray-200'
-                      }`}
-                    >
-                      <span>{sub.name}</span>
-                      <ChevronRight className="h-4 w-4" />
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
           </div>
         )}
 
@@ -312,7 +282,6 @@ export default function PublishPage() {
                   multiple
                   className="hidden"
                   onChange={(e) => {
-                    // For demo, just add placeholder images
                     const newImages = Array.from(e.target.files || []).map(
                       (_, i) => `https://picsum.photos/400/300?random=${Date.now() + i}`
                     )
@@ -349,10 +318,7 @@ export default function PublishPage() {
               <div className="flex justify-between">
                 <span className="text-gray-500">Catégorie</span>
                 <span className="font-medium text-gray-800">
-                  {selectedCategoryData?.name}
-                  {selectedSubcategory && subcategories.find(s => s.id === selectedSubcategory)?.name && (
-                    <span> → {subcategories.find(s => s.id === selectedSubcategory)?.name}</span>
-                  )}
+                  {categories.find(c => c.id === selectedCategory)?.name}
                 </span>
               </div>
               <div className="flex justify-between">

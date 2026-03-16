@@ -13,8 +13,8 @@ export default function Home() {
   const [isSeeded, setIsSeeded] = useState(false)
 
   useEffect(() => {
-    // Seed database on first load
-    fetch('/api/seed')
+    // Seed Firebase database on first load
+    fetch('/api/firebase-seed')
       .then(res => res.json())
       .then(data => {
         if (data.success) setIsSeeded(true)
