@@ -7,7 +7,7 @@ import {
   BarChart3, MessageSquare, Flag, DollarSign, Bell,
   LogOut, Menu, X, ChevronRight, Search, Plus,
   Trash2, Edit, Eye, CheckCircle, XCircle, AlertTriangle,
-  Home, Wrench, Truck, ShoppingBag, Utensils, Package, Briefcase, GraduationCap, PartyPopper, Link2
+  Home, Wrench, Truck, ShoppingBag, Utensils, Package, Briefcase, GraduationCap, PartyPopper, Link2, Bot, Sparkles
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -42,7 +42,7 @@ const adminNav = [
   { name: 'Utilisateurs', icon: Users, href: '/admin/utilisateurs' },
   { name: 'Catégories', icon: Settings, href: '/admin/categories' },
   { name: 'Messages', icon: MessageSquare, href: '/admin/messages' },
-  { name: 'Import URL', icon: Link2, href: '/admin/import-annonce' },
+  { name: 'Assistant IA', icon: Bot, href: '/admin/assistant-ia' },
 ]
 
 const categoryIcons: Record<string, any> = {
@@ -408,14 +408,29 @@ export default function AdminDashboard() {
 
           {/* Quick Links */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            {/* Assistant IA - Featured */}
+            <Link href="/admin/assistant-ia" className="md:col-span-2">
+              <div className="bg-gradient-to-r from-green-600 to-green-500 rounded-xl p-6 shadow-lg hover:shadow-xl transition-shadow text-white">
+                <div className="flex items-center gap-4">
+                  <div className="w-14 h-14 bg-white/20 rounded-xl flex items-center justify-center">
+                    <Bot className="h-8 w-8 text-white" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-lg flex items-center gap-2">
+                      Assistant IA
+                      <Sparkles className="h-5 w-5 text-yellow-300" />
+                    </h3>
+                    <p className="text-green-100 text-sm mt-1">Importez des annonces automatiquement</p>
+                  </div>
+                </div>
+              </div>
+            </Link>
             {[
               { name: 'Gérer les annonces', icon: FileText, href: '/admin/annonces', color: 'blue' },
               { name: 'Utilisateurs', icon: Users, href: '/admin/utilisateurs', color: 'green' },
-              { name: 'Messages', icon: MessageSquare, href: '/admin/messages', color: 'purple' },
-              { name: 'Import URL', icon: Link2, href: '/admin/import-annonce', color: 'orange' },
             ].map((item) => (
               <Link key={item.name} href={item.href}>
-                <div className="bg-white rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow">
+                <div className="bg-white rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow h-full">
                   <div className={`w-12 h-12 bg-${item.color}-100 rounded-xl flex items-center justify-center mb-3`}>
                     <item.icon className={`h-6 w-6 text-${item.color}-600`} />
                   </div>
