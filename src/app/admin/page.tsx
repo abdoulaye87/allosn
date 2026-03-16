@@ -7,7 +7,7 @@ import {
   BarChart3, MessageSquare, Flag, DollarSign, Bell,
   LogOut, Menu, X, ChevronRight, Search, Plus,
   Trash2, Edit, Eye, CheckCircle, XCircle, AlertTriangle,
-  Home, Wrench, Truck, ShoppingBag, Utensils, Package, Briefcase, GraduationCap, PartyPopper
+  Home, Wrench, Truck, ShoppingBag, Utensils, Package, Briefcase, GraduationCap, PartyPopper, Link2
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -41,11 +41,8 @@ const adminNav = [
   { name: 'Annonces', icon: FileText, href: '/admin/annonces' },
   { name: 'Utilisateurs', icon: Users, href: '/admin/utilisateurs' },
   { name: 'Catégories', icon: Settings, href: '/admin/categories' },
-  { name: 'Villes & Régions', icon: Shield, href: '/admin/villes' },
   { name: 'Messages', icon: MessageSquare, href: '/admin/messages' },
-  { name: 'Notifications', icon: Bell, href: '/admin/notifications' },
-  { name: 'Signalements', icon: Flag, href: '/admin/signalements' },
-  { name: 'Paramètres', icon: Settings, href: '/admin/parametres' },
+  { name: 'Import URL', icon: Link2, href: '/admin/import-annonce' },
 ]
 
 const categoryIcons: Record<string, any> = {
@@ -415,7 +412,7 @@ export default function AdminDashboard() {
               { name: 'Gérer les annonces', icon: FileText, href: '/admin/annonces', color: 'blue' },
               { name: 'Utilisateurs', icon: Users, href: '/admin/utilisateurs', color: 'green' },
               { name: 'Messages', icon: MessageSquare, href: '/admin/messages', color: 'purple' },
-              { name: 'Catégories', icon: Settings, href: '/admin/categories', color: 'orange' },
+              { name: 'Import URL', icon: Link2, href: '/admin/import-annonce', color: 'orange' },
             ].map((item) => (
               <Link key={item.name} href={item.href}>
                 <div className="bg-white rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow">
