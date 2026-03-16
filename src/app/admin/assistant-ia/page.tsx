@@ -65,16 +65,21 @@ Je peux scraper n'importe quel site d'annonces et extraire:
 - 📍 **Localisation** précise
 
 **Commandes:**
-• \`scraper-deep [URL]\` - **Recommandé** - Entre dans chaque annonce pour extraire tous les détails
+• \`scraper-deep [URL]\` - **Recommandé** - Parcourt TOUTES les pages de pagination et entre dans chaque annonce
 • \`scraper [URL]\` - Scraper rapide d'une seule page
+
+**Nouveau:** Je parcours automatiquement toutes les pages de pagination !
+- Configurez le nombre de **Pages** (jusqu'à 100)
+- Configurez le nombre d'**Annonces max** (jusqu'à 500)
 
 **Exemple:**
 \`scraper-deep https://www.expat-dakar.com/annonces/thies\`
 
 Je vais:
-1. Trouver toutes les annonces de la page
-2. Entrer dans CHAQUE annonce
-3. Extraire titre, photos, téléphone, description, localisation`,
+1. Analyser la page de liste
+2. Détecter et parcourir TOUTES les pages de pagination
+3. Collecter tous les liens d'annonces
+4. Entrer dans CHAQUE annonce pour extraire les détails`,
       timestamp: new Date()
     }
   ])
@@ -82,8 +87,8 @@ Je vais:
   const [isProcessing, setIsProcessing] = useState(false)
   const [scrapedAds, setScrapedAds] = useState<DetailedAd[]>([])
   const [showAdsPanel, setShowAdsPanel] = useState(false)
-  const [maxPages, setMaxPages] = useState(5)
-  const [maxAds, setMaxAds] = useState(30)
+  const [maxPages, setMaxPages] = useState(10)
+  const [maxAds, setMaxAds] = useState(100)
   const [expandedAd, setExpandedAd] = useState<number | null>(null)
   
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -169,10 +174,11 @@ Je vais:
             `• Pages max: ${maxPages}\n` +
             `• Annonces max: ${maxAds}\n\n` +
             `⏳ Étapes:\n` +
-            `1️⃣ Analyse de la page de liste...\n` +
-            `2️⃣ Extraction des liens d'annonces...\n` +
-            `3️⃣ Scraping détaillé de chaque annonce...\n\n` +
-            ` Cela peut prendre quelques minutes...`
+            `1️⃣ Analyse de la première page...\n` +
+            `2️⃣ Détection et parcours des pages de pagination...\n` +
+            `3️⃣ Collecte de tous les liens d'annonces...\n` +
+            `4️⃣ Scraping détaillé de chaque annonce...\n\n` +
+            `⏰ Cela peut prendre plusieurs minutes selon le nombre d'annonces...`
           )
         } else {
           updateLastMessage('🔍 Analyse de la page en cours...')
@@ -197,8 +203,11 @@ Je vais:
           setScrapedAds(data.ads.map((ad: DetailedAd) => ({ ...ad, selected: true })))
           setShowAdsPanel(true)
           
-          const detailsText = data.totalPagesScraped 
-            ? `📄 **${data.totalPagesScraped} pages analysées** | **${data.totalAdLinksFound} liens trouvés**`
+          const pagesInfo = data.totalPagesScraped 
+            ? `📄 **${data.totalPagesScraped} pages** analysées\n`
+            : ''
+          const linksInfo = data.totalAdLinksFound 
+            ? `🔗 **${data.totalAdLinksFound} liens** d'annonces trouvés\n`
             : ''
 
           const photosCount = data.ads.reduce((sum: number, ad: DetailedAd) => sum + (ad.images?.length || 0), 0)
@@ -206,7 +215,7 @@ Je vais:
           
           addMessage('assistant', 
             `✅ **${data.totalFound} annonces extraites** de ${data.siteName} !\n\n` +
-            `${detailsText}\n\n` +
+            `${pagesInfo}${linksInfo}\n` +
             `📊 **Détails extraits:**\n` +
             `• 📷 ${photosCount} photos trouvées\n` +
             `• 📞 ${phonesCount} numéros de téléphone\n\n` +
@@ -474,10 +483,11 @@ Je vais:
                   onChange={(e) => setMaxPages(parseInt(e.target.value))}
                   className="border rounded px-2 py-1 text-sm"
                 >
-                  <option value={3}>3</option>
                   <option value={5}>5</option>
                   <option value={10}>10</option>
                   <option value={20}>20</option>
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
                 </select>
               </div>
               <div className="flex items-center gap-2">
@@ -487,10 +497,10 @@ Je vais:
                   onChange={(e) => setMaxAds(parseInt(e.target.value))}
                   className="border rounded px-2 py-1 text-sm"
                 >
-                  <option value={10}>10</option>
-                  <option value={30}>30</option>
                   <option value={50}>50</option>
                   <option value={100}>100</option>
+                  <option value={200}>200</option>
+                  <option value={500}>500</option>
                 </select>
               </div>
             </div>

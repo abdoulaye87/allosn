@@ -97,12 +97,88 @@ function findAllAdLinks(html: string, baseUrl: string): string[] {
   return Array.from(links)
 }
 
+// Détecter les URLs de pagination
+function findPaginationUrls(html: string, baseUrl: string, maxPages: number): string[] {
+  const paginationUrls: string[] = []
+  const base = new URL(baseUrl)
+  const seen = new Set<string>()
+  
+  // Pattern 1: ?page=X
+  const pageParamMatch = html.matchAll(/[?&]page=(\d+)/gi)
+  for (const match of pageParamMatch) {
+    const pageNum = parseInt(match[1])
+    if (pageNum > 1 && pageNum <= maxPages && !seen.has(`param-${pageNum}`)) {
+      seen.add(`param-${pageNum}`)
+      const url = new URL(baseUrl)
+      url.searchParams.set('page', pageNum.toString())
+      paginationUrls.push(url.toString())
+    }
+  }
+  
+  // Pattern 2: /page/X ou /page-X
+  const pagePathMatch = html.matchAll(/href=["']([^"']*(?:\/page\/|\/page-)(\d+)[^"']*)["']/gi)
+  for (const match of pagePathMatch) {
+    const pageNum = parseInt(match[2])
+    let link = match[1]
+    if (pageNum > 1 && pageNum <= maxPages && !seen.has(`path-${pageNum}`)) {
+      seen.add(`path-${pageNum}`)
+      if (link.startsWith('/')) {
+        link = `${base.origin}${link}`
+      } else if (!link.startsWith('http')) {
+        link = `${base.origin}/${link}`
+      }
+      paginationUrls.push(link)
+    }
+  }
+  
+  // Pattern 3: Liens numérotés directs (1, 2, 3...)
+  const numberedLinks = html.matchAll(/href=["']([^"']*)["'][^>]*>(\d+)<\/a>/gi)
+  for (const match of numberedLinks) {
+    const pageNum = parseInt(match[2])
+    let link = match[1]
+    if (pageNum > 1 && pageNum <= maxPages && !seen.has(`num-${pageNum}`)) {
+      // Vérifier que c'est bien un lien de pagination
+      if (link.includes('page') || link.includes('?') || link.match(/\/\d+$/)) {
+        seen.add(`num-${pageNum}`)
+        if (link.startsWith('/')) {
+          link = `${base.origin}${link}`
+        } else if (!link.startsWith('http')) {
+          link = `${base.origin}/${link}`
+        }
+        paginationUrls.push(link)
+      }
+    }
+  }
+  
+  // Construire manuellement les URLs de pagination si aucune trouvée
+  // Pour expat-dakar.com: ?page=2, ?page=3, etc.
+  if (paginationUrls.length === 0 && maxPages > 1) {
+    for (let i = 2; i <= maxPages; i++) {
+      const url = new URL(baseUrl)
+      url.searchParams.set('page', i.toString())
+      paginationUrls.push(url.toString())
+    }
+  }
+  
+  // Trier par numéro de page et dédupliquer
+  const sorted = paginationUrls
+    .map(url => {
+      const match = url.match(/[?&]page=(\d+)/) || url.match(/\/page\/(\d+)/) || url.match(/\/page-(\d+)/)
+      return { url, page: match ? parseInt(match[1]) : 999 }
+    })
+    .sort((a, b) => a.page - b.page)
+    .filter((item, idx, arr) => arr.findIndex(i => i.page === item.page) === idx)
+    .map(item => item.url)
+  
+  return sorted.slice(0, maxPages - 1)
+}
+
 // Extraire les images
 function extractImages(html: string, url: string): string[] {
   const images: string[] = []
   const base = new URL(url)
   
-  const imgMatches = html.matchAll(/<img[^>]+(?:src|data-src)=["']([^"']+)["']/gi)
+  const imgMatches = html.matchAll(/<img[^>]+(?:src|data-src|data-lazy-src)=["']([^"']+)["']/gi)
   for (const match of imgMatches) {
     let imgUrl = match[1]
     if (imgUrl.startsWith('//')) imgUrl = 'https:' + imgUrl
@@ -112,12 +188,12 @@ function extractImages(html: string, url: string): string[] {
     if ((lower.includes('.jpg') || lower.includes('.jpeg') || lower.includes('.png') || lower.includes('.webp') || lower.includes('image')) &&
         !lower.includes('logo') && !lower.includes('avatar') && !lower.includes('icon') &&
         !lower.includes('banner') && !lower.includes('pub') && !lower.includes('ad') &&
-        !lower.includes('pixel') && !lower.includes('tracking')) {
+        !lower.includes('pixel') && !lower.includes('tracking') && !lower.includes('sprite')) {
       images.push(imgUrl)
     }
   }
   
-  return [...new Set(images)].slice(0, 10)
+  return [...new Set(images)].slice(0, 15)
 }
 
 // Extraire le contenu textuel
@@ -135,13 +211,12 @@ function getTextContent(html: string): string {
     .trim()
 }
 
-// Extraire les détails d'une annonce - VERSION ROBUSTE
+// Extraire les détails d'une annonce
 async function extractAdDetails(html: string, url: string): Promise<DetailedAd | null> {
   try {
     const textContent = getTextContent(html)
     const images = extractImages(html, url)
     
-    // APPROCHE 1: Extraction directe du HTML
     let title = ''
     let description = ''
     let price: number | null = null
@@ -154,15 +229,14 @@ async function extractAdDetails(html: string, url: string): Promise<DetailedAd |
       html.match(/<h1[^>]*>([^<]{5,200})<\/h1>/i) ||
       html.match(/<title>([^<]{5,200})<\/title>/i) ||
       html.match(/class=["'][^"']*title[^"']*["'][^>]*>([^<]{5,200})</i) ||
-      html.match(/class=["'][^"']*annonce[^"']*["'][^>]*>([^<]{5,200})</i)
+      html.match(/class=["'][^"']*(?:annonce|listing)[^"']*["'][^>]*>([^<]{5,200})</i)
     
     if (titleMatch) {
       title = titleMatch[1].trim().replace(/\s+/g, ' ')
-      // Nettoyer le titre (enlever le nom du site)
       title = title.split('|')[0].split('-')[0].trim()
     }
 
-    // Prix - chercher les patterns FCFA
+    // Prix
     const priceMatch = html.match(/(\d[\d\s\.]*)\s*(?:FCFA|CFA|F\s)/i) ||
                        html.match(/prix[^<]*[:\s]*(\d[\d\s\.]*)/i)
     if (priceMatch) {
@@ -170,7 +244,7 @@ async function extractAdDetails(html: string, url: string): Promise<DetailedAd |
       if (isNaN(price) || price < 100) price = null
     }
 
-    // Téléphone - chercher les numéros sénégalais
+    // Téléphone - patterns sénégalais
     const phonePatterns = [
       /(7[0-8][\s\.]?\d{2}[\s\.]?\d{2}[\s\.]?\d{2}[\s\.]?\d{2})/g,
       /(33[\s\.]?\d{2}[\s\.]?\d{2}[\s\.]?\d{2}[\s\.]?\d{2})/g,
@@ -190,11 +264,12 @@ async function extractAdDetails(html: string, url: string): Promise<DetailedAd |
       if (phone) break
     }
 
-    // Ville - chercher dans le texte
-    const senegalCities = ['Dakar', 'Thiès', 'Saint-Louis', 'Mbour', 'Kaolack', 'Rufisque', 'Touba', 
+    // Ville
+    const senegalCities = ['Dakar', 'Thiès', 'Thies', 'Saint-Louis', 'Mbour', 'Kaolack', 'Rufisque', 'Touba', 
                            'Ziguinchor', 'Diourbel', 'Louga', 'Tambacounda', 'Kolda', 'Matam',
                            'Fatick', 'Kaffrine', 'Kédougou', 'Sédhiou', 'Podor', 'Richard Toll',
-                           'Tivaouane', 'Mbao', 'Guédiawaye', 'Pikine', 'Diamniadio', 'Saly']
+                           'Tivaouane', 'Mbao', 'Guédiawaye', 'Pikine', 'Diamniadio', 'Saly',
+                           'Ngaparou', 'Somone', 'Popenguine', 'Warang', 'Mont Rolland']
     
     for (const city_name of senegalCities) {
       if (textContent.toLowerCase().includes(city_name.toLowerCase())) {
@@ -203,17 +278,18 @@ async function extractAdDetails(html: string, url: string): Promise<DetailedAd |
       }
     }
 
-    // Description - prendre un extrait du texte
+    // Description
     const descMatch = html.match(/class=["'][^"']*(?:description|content|detail)[^"']*["'][^>]*>([\s\S]{50,2000}?)<\/(?:div|p|span)>/i)
     if (descMatch) {
       description = descMatch[1].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
     }
 
-    // Catégorie basée sur le contenu
+    // Catégorie
     const lower = textContent.toLowerCase()
     if (lower.includes('appartement') || lower.includes('maison') || lower.includes('terrain') || 
         lower.includes('villa') || lower.includes('studio') || lower.includes('immobilier') ||
-        lower.includes('location') || lower.includes('louer') || lower.includes('vendre')) {
+        lower.includes('location') || lower.includes('louer') || lower.includes('vendre') ||
+        lower.includes('ferme') || lower.includes('hectare')) {
       category = 'immobilier'
     } else if (lower.includes('voiture') || lower.includes('moto') || lower.includes('véhicule') || 
                lower.includes('auto') || lower.includes('camion')) {
@@ -223,7 +299,7 @@ async function extractAdDetails(html: string, url: string): Promise<DetailedAd |
       category = 'emploi'
     }
 
-    // APPROCHE 2: Si pas de titre, utiliser l'IA
+    // Si pas de titre, utiliser l'IA
     if (!title || title.length < 5) {
       const aiPrompt = `Extrait les informations de cette annonce sénégalaise:
 
@@ -250,14 +326,12 @@ Retourne uniquement un JSON:
       }
     }
 
-    // Dernier recours: extraire du texte brut
+    // Dernier recours
     if (!title || title.length < 3) {
-      // Prendre les premiers mots significatifs
       const words = textContent.split(/\s+/).filter(w => w.length > 2).slice(0, 10)
       title = words.join(' ')
     }
 
-    // Vérification finale
     if (!title || title.length < 3) {
       return null
     }
@@ -281,91 +355,137 @@ Retourne uniquement un JSON:
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { url, action, ads, maxAds } = body
+    const { url, action, ads, maxAds, maxPages } = body
 
-    // SCRAPE DEEP
+    // SCRAPE DEEP - AVEC PAGINATION COMPLÈTE
     if (action === 'scrape-deep' || action === 'scrape-all') {
       if (!url) {
         return NextResponse.json({ error: 'URL requise' }, { status: 400 })
       }
 
-      const limit = maxAds || 50
+      const adsLimit = maxAds || 200
+      const pagesLimit = maxPages || 20
       const allAds: DetailedAd[] = []
-      const processed = new Set<string>()
+      const allAdLinks = new Set<string>()
+      const processedAds = new Set<string>()
 
       console.log(`📄 Scraping: ${url}`)
+      console.log(`📊 Limites: ${pagesLimit} pages, ${adsLimit} annonces`)
       
-      const listingHtml = await scrapePage(url)
-      if (!listingHtml) {
+      // 1. Scraper la première page
+      const firstPageHtml = await scrapePage(url)
+      if (!firstPageHtml) {
         return NextResponse.json({ error: 'Impossible d\'accéder à la page' }, { status: 400 })
       }
 
-      // Trouver les liens
-      let adLinks = findAllAdLinks(listingHtml, url)
-      console.log(`🔗 ${adLinks.length} liens trouvés`)
+      // 2. Trouver les liens d'annonces sur la première page
+      const firstPageLinks = findAllAdLinks(firstPageHtml, url)
+      firstPageLinks.forEach(link => allAdLinks.add(link))
+      console.log(`📍 Page 1: ${firstPageLinks.length} liens trouvés`)
 
-      adLinks = adLinks.slice(0, limit)
-      console.log(`🎯 ${adLinks.length} liens à scraper`)
+      // 3. Trouver les URLs de pagination
+      const paginationUrls = findPaginationUrls(firstPageHtml, url, pagesLimit)
+      console.log(`📑 ${paginationUrls.length} pages de pagination détectées`)
 
-      // Scraper chaque annonce
-      for (let i = 0; i < adLinks.length; i++) {
-        const adUrl = adLinks[i]
+      // 4. Scraper chaque page de pagination pour collecter les liens
+      for (let i = 0; i < paginationUrls.length && allAdLinks.size < adsLimit; i++) {
+        const pageUrl = paginationUrls[i]
+        console.log(`📍 Page ${i + 2}: ${pageUrl}`)
         
-        if (processed.has(adUrl)) continue
-        processed.add(adUrl)
+        await new Promise(r => setTimeout(r, 300)) // Petite pause
+        
+        const pageHtml = await scrapePage(pageUrl)
+        if (pageHtml) {
+          const pageLinks = findAllAdLinks(pageHtml, url)
+          pageLinks.forEach(link => allAdLinks.add(link))
+          console.log(`   → ${pageLinks.length} liens (total: ${allAdLinks.size})`)
+        }
+      }
 
-        console.log(`📍 [${i + 1}/${adLinks.length}] ${adUrl}`)
+      console.log(`\n🔗 TOTAL: ${allAdLinks.size} liens d'annonces trouvés`)
+
+      // 5. Convertir en tableau et limiter
+      const adLinksArray = Array.from(allAdLinks).slice(0, adsLimit)
+      console.log(`🎯 ${adLinksArray.length} annonces à scraper`)
+
+      // 6. Scraper chaque annonce en détail
+      let successCount = 0
+      let failCount = 0
+      
+      for (let i = 0; i < adLinksArray.length && allAds.length < adsLimit; i++) {
+        const adUrl = adLinksArray[i]
+        
+        if (processedAds.has(adUrl)) continue
+        processedAds.add(adUrl)
+
+        console.log(`📍 [${i + 1}/${adLinksArray.length}] ${adUrl}`)
 
         const adHtml = await scrapePage(adUrl)
         if (!adHtml) {
           console.log(`   ❌ Page non accessible`)
+          failCount++
           continue
         }
 
         const adDetails = await extractAdDetails(adHtml, adUrl)
         if (adDetails) {
           allAds.push(adDetails)
+          successCount++
           console.log(`   ✅ ${adDetails.title.substring(0, 50)}...`)
         } else {
+          failCount++
           console.log(`   ❌ Extraction échouée`)
         }
 
-        await new Promise(r => setTimeout(r, 100))
+        // Pause entre chaque requête
+        await new Promise(r => setTimeout(r, 200))
       }
 
-      console.log(`\n✅ TOTAL: ${allAds.length} annonces`)
+      console.log(`\n✅ RÉSULTAT: ${allAds.length} annonces extraites (${successCount} succès, ${failCount} échecs)`)
 
       return NextResponse.json({
         success: true,
         siteName: new URL(url).hostname,
         totalFound: allAds.length,
-        totalLinksFound: adLinks.length,
+        totalAdLinksFound: allAdLinks.size,
+        totalPagesScraped: paginationUrls.length + 1,
         ads: allAds,
         sourceUrl: url
       })
     }
 
-    // SCRAPE SIMPLE
+    // SCRAPE SIMPLE - Une seule page
     if (action === 'scrape') {
       if (!url) {
         return NextResponse.json({ error: 'URL requise' }, { status: 400 })
       }
 
+      const adsLimit = maxAds || 50
+      
       const html = await scrapePage(url)
       if (!html) {
         return NextResponse.json({ error: 'Impossible de récupérer' }, { status: 400 })
       }
 
-      const adLinks = findAllAdLinks(html, url).slice(0, 10)
+      // Trouver tous les liens d'annonces
+      const adLinks = findAllAdLinks(html, url).slice(0, adsLimit)
       const ads: DetailedAd[] = []
 
-      for (const adUrl of adLinks) {
+      console.log(`🔗 ${adLinks.length} liens trouvés`)
+
+      for (let i = 0; i < adLinks.length; i++) {
+        const adUrl = adLinks[i]
+        console.log(`📍 [${i + 1}/${adLinks.length}] ${adUrl}`)
+        
         const adHtml = await scrapePage(adUrl)
         if (adHtml) {
           const details = await extractAdDetails(adHtml, adUrl)
-          if (details) ads.push(details)
+          if (details) {
+            ads.push(details)
+            console.log(`   ✅ ${details.title.substring(0, 50)}...`)
+          }
         }
-        await new Promise(r => setTimeout(r, 100))
+        await new Promise(r => setTimeout(r, 200))
       }
 
       return NextResponse.json({
