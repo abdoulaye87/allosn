@@ -5,7 +5,8 @@ import { useRouter } from 'next/navigation'
 import {
   Shield, LogOut, Menu, X, Send, Link2, Bot, Sparkles,
   Globe, FileText, CheckCircle, XCircle, Loader2, Trash2,
-  ChevronRight, Eye, Plus, RefreshCw, Copy, Download
+  ChevronRight, Eye, Plus, RefreshCw, Copy, Download,
+  ChevronDown, ChevronUp, AlertCircle, Layers
 } from 'lucide-react'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
@@ -18,6 +19,10 @@ interface Message {
   timestamp: Date
   ads?: ScrapedAd[]
   isLoading?: boolean
+  paginationInfo?: {
+    totalPages: number
+    currentPage: number
+  }
 }
 
 interface ScrapedAd {
@@ -29,6 +34,7 @@ interface ScrapedAd {
   images: string[]
   category: string
   selected?: boolean
+  sourcePage?: string
 }
 
 const adminNav = [
@@ -51,7 +57,22 @@ export default function AssistantIAPage() {
     {
       id: '1',
       role: 'assistant',
-      content: '👋 Bonjour ! Je suis l\'assistant IA d\'AlloSN.\n\nJe peux vous aider à :\n• **Importer des annonces** depuis n\'importe quel site\n• **Scraper** une page web pour extraire les annonces\n• **Créer** des annonces automatiquement\n\nCollez simplement une URL et je m\'occupe du reste !',
+      content: `🤖 **Bonjour ! Je suis l'assistant IA d'AlloSN.**
+
+Je peux vous aider à :
+
+📌 **Importer depuis une URL**
+• Collez une URL pour scraper les annonces
+• Je détecte automatiquement la pagination
+
+📚 **Scraper TOUTES les pages**
+• Tapez "scraper-all [URL]" pour toutes les pages
+• Je navigue page 1, 2, 3... jusqu'à la fin
+
+⚡ **Commandes rapides**
+• \`scraper [URL]\` - Une seule page
+• \`scraper-all [URL]\` - Toutes les pages (pagination auto)
+• \`importer\` - Importer les annonces sélectionnées`,
       timestamp: new Date()
     }
   ])
@@ -59,6 +80,8 @@ export default function AssistantIAPage() {
   const [isProcessing, setIsProcessing] = useState(false)
   const [scrapedAds, setScrapedAds] = useState<ScrapedAd[]>([])
   const [showAdsPanel, setShowAdsPanel] = useState(false)
+  const [maxPages, setMaxPages] = useState(10)
+  const [progressInfo, setProgressInfo] = useState<{current: number, total: number} | null>(null)
   
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -90,16 +113,27 @@ export default function AssistantIAPage() {
     router.push('/admin/login')
   }
 
-  const addMessage = (role: 'user' | 'assistant' | 'system', content: string, ads?: ScrapedAd[]) => {
+  const addMessage = (role: 'user' | 'assistant' | 'system', content: string, ads?: ScrapedAd[], paginationInfo?: { totalPages: number; currentPage: number }) => {
     const newMessage: Message = {
       id: Date.now().toString(),
       role,
       content,
       timestamp: new Date(),
-      ads
+      ads,
+      paginationInfo
     }
     setMessages(prev => [...prev, newMessage])
     return newMessage
+  }
+
+  const updateLastMessage = (content: string) => {
+    setMessages(prev => {
+      const updated = [...prev]
+      if (updated.length > 0) {
+        updated[updated.length - 1] = { ...updated[updated.length - 1], content }
+      }
+      return updated
+    })
   }
 
   const extractUrls = (text: string): string[] => {
@@ -114,21 +148,31 @@ export default function AssistantIAPage() {
     setInputValue('')
     addMessage('user', userMessage)
     setIsProcessing(true)
+    setProgressInfo(null)
 
-    // Check if message contains URL
     const urls = extractUrls(userMessage)
+    const isScrapeAll = userMessage.toLowerCase().includes('scraper-all') || userMessage.toLowerCase().includes('toutes les pages')
     
     if (urls.length > 0) {
-      // Scraper l'URL
       const loadingMsg = addMessage('assistant', '🔍 Analyse de la page en cours...')
       
       try {
+        // Déterminer l'action
+        const action = isScrapeAll ? 'scrape-all' : 'scrape'
+        
+        if (isScrapeAll) {
+          updateLastMessage(`🔍 **Scraping de toutes les pages en cours...**\n\n` +
+            `📊 Je vais scanner jusqu'à ${maxPages} pages pour extraire toutes les annonces.\n` +
+            `⏳ Cela peut prendre quelques instants...`)
+        }
+
         const response = await fetch('/api/ai-import', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            action: 'scrape',
-            url: urls[0]
+            action: action,
+            url: urls[0],
+            maxPages: maxPages
           })
         })
 
@@ -141,22 +185,29 @@ export default function AssistantIAPage() {
           setScrapedAds(data.ads.map((ad: ScrapedAd) => ({ ...ad, selected: true })))
           setShowAdsPanel(true)
           
+          const paginationText = data.totalPagesScraped 
+            ? `\n\n📄 **${data.totalPagesScraped} pages analysées**`
+            : (data.paginationDetected ? `\n\n📄 Pagination détectée: ${data.totalPages} pages - Utilisez "scraper-all [URL]" pour tout scraper` : '')
+          
           addMessage('assistant', 
-            `✅ **${data.totalFound} annonces trouvées** sur ${data.siteName} !\n\n` +
-            `Cliquez sur les annonces dans le panneau de droite pour les sélectionner, ` +
-            `puis cliquez sur "Importer la sélection" pour les ajouter à AlloSN.`,
+            `✅ **${data.totalFound} annonces trouvées** sur ${data.siteName} !${paginationText}\n\n` +
+            `👆 Sélectionnez les annonces à importer dans le panneau de droite, ` +
+            `puis cliquez sur "Importer la sélection".`,
             data.ads
           )
         } else {
           addMessage('assistant', 
             '❌ Aucune annonce trouvée sur cette page.\n\n' +
-            'Vérifiez que l\'URL pointe vers une page contenant des annonces classées.',
+            '**Conseils:**\n' +
+            '• Vérifiez que l\'URL pointe vers une page de liste d\'annonces\n' +
+            '• Certains sites bloquent le scraping automatique\n' +
+            '• Essayez une autre URL ou catégorie',
             []
           )
         }
       } catch (error) {
         setMessages(prev => prev.filter(m => m.id !== loadingMsg.id))
-        addMessage('assistant', '❌ Erreur lors de l\'analyse de la page. Vérifiez l\'URL et réessayez.')
+        addMessage('assistant', '❌ Erreur lors de l\'analyse. Vérifiez l\'URL et réessayez.')
       }
     } else {
       // Chat normal avec l'IA
@@ -179,6 +230,7 @@ export default function AssistantIAPage() {
     }
 
     setIsProcessing(false)
+    setProgressInfo(null)
   }
 
   const toggleAdSelection = (index: number) => {
@@ -196,7 +248,7 @@ export default function AssistantIAPage() {
     if (selectedAds.length === 0) return
 
     setIsProcessing(true)
-    addMessage('assistant', `⏳ Import de ${selectedAds.length} annonce(s) en cours...`)
+    addMessage('assistant', `⏳ Import de ${selectedAds.length} annonce(s) en cours...\n\n📊 Progression: 0/${selectedAds.length}`)
 
     try {
       const response = await fetch('/api/ai-import', {
@@ -205,7 +257,7 @@ export default function AssistantIAPage() {
         body: JSON.stringify({
           action: 'bulk-import',
           ads: selectedAds,
-          sourceUrl: messages.find(m => m.ads && m.ads.length > 0)?.content.match(/https?:\/\/[^\s]+/)?.[0] || 'unknown'
+          sourceUrl: 'ai-import'
         })
       })
 
@@ -214,9 +266,10 @@ export default function AssistantIAPage() {
       if (data.success) {
         addMessage('assistant', 
           `✅ **Import terminé !**\n\n` +
-          `• Réussies : ${data.successCount}\n` +
-          `• Échouées : ${data.failedCount}\n\n` +
-          `Les annonces sont maintenant visibles sur AlloSN.`
+          `• ✅ Réussies : ${data.successCount}\n` +
+          `• ❌ Échouées : ${data.failedCount}\n\n` +
+          `🎉 Les annonces sont maintenant visibles sur AlloSN !\n\n` +
+          `[Voir les annonces](/admin/annonces)`
         )
         setScrapedAds([])
         setShowAdsPanel(false)
@@ -240,7 +293,7 @@ export default function AssistantIAPage() {
         body: JSON.stringify({
           action: 'create-ad',
           ad: ad,
-          sourceUrl: 'manual-import'
+          sourceUrl: ad.sourcePage || 'manual-import'
         })
       })
 
@@ -253,7 +306,6 @@ export default function AssistantIAPage() {
           `**ID :** ${data.adId}\n` +
           `**Code réclamation :** ${data.reclamCode}`
         )
-        // Remove from scraped list
         setScrapedAds(prev => prev.filter(a => a !== ad))
       }
     } catch (error) {
@@ -331,7 +383,7 @@ export default function AssistantIAPage() {
               </div>
               <div>
                 <h1 className="font-bold text-gray-800">Assistant IA AlloSN</h1>
-                <p className="text-xs text-gray-500">Import automatique d'annonces</p>
+                <p className="text-xs text-gray-500">Import automatique multi-pages</p>
               </div>
             </div>
 
@@ -366,8 +418,17 @@ export default function AssistantIAPage() {
                   
                   <div className="whitespace-pre-wrap text-sm leading-relaxed">
                     {message.content.split('**').map((part, i) => 
-                      i % 2 === 1 ? <strong key={i}>{part}</strong> : part
-                    )}
+                      i % 2 === 1 ? <strong key={i} className="font-bold">{part}</strong> : part
+                    ).map((part, i) => {
+                      if (typeof part === 'string' && part.includes('[Voir les annonces]')) {
+                        return (
+                          <Link key={i} href="/admin/annonces" className="text-green-600 hover:underline font-medium">
+                            Voir les annonces
+                          </Link>
+                        )
+                      }
+                      return part
+                    })}
                   </div>
 
                   {message.isLoading && (
@@ -389,7 +450,7 @@ export default function AssistantIAPage() {
                 <div className="bg-white rounded-2xl px-4 py-3 shadow-md">
                   <div className="flex items-center gap-2 text-gray-600">
                     <Loader2 className="h-4 w-4 animate-spin" />
-                    <span className="text-sm">L'assistant réfléchit...</span>
+                    <span className="text-sm">L'assistant travaille...</span>
                   </div>
                 </div>
               </div>
@@ -400,13 +461,28 @@ export default function AssistantIAPage() {
 
           {/* Input */}
           <div className="bg-white border-t p-4">
+            {/* Max pages setting */}
+            <div className="flex items-center gap-3 mb-3 text-sm">
+              <span className="text-gray-500">Pages max à scraper:</span>
+              <select
+                value={maxPages}
+                onChange={(e) => setMaxPages(parseInt(e.target.value))}
+                className="border rounded-lg px-2 py-1 text-sm"
+              >
+                <option value={5}>5 pages</option>
+                <option value={10}>10 pages</option>
+                <option value={20}>20 pages</option>
+                <option value={50}>50 pages</option>
+              </select>
+            </div>
+
             <div className="flex gap-3">
               <Input
                 ref={inputRef}
                 value={inputValue}
                 onChange={(e) => setInputValue(e.target.value)}
                 onKeyPress={(e) => e.key === 'Enter' && !e.shiftKey && handleSendMessage()}
-                placeholder="Collez une URL ou posez une question..."
+                placeholder="Collez une URL ou tapez scraper-all [URL] pour toutes les pages..."
                 className="flex-1 rounded-xl py-3"
                 disabled={isProcessing}
               />
@@ -422,23 +498,30 @@ export default function AssistantIAPage() {
             {/* Quick actions */}
             <div className="flex flex-wrap gap-2 mt-3">
               <button
-                onClick={() => setInputValue('https://')}
-                className="text-xs bg-gray-100 hover:bg-gray-200 text-gray-600 px-3 py-1.5 rounded-full transition-colors"
+                onClick={() => setInputValue('scraper-all https://')}
+                className="text-xs bg-green-100 hover:bg-green-200 text-green-700 px-3 py-1.5 rounded-full transition-colors flex items-center gap-1"
               >
-                <Link2 className="h-3 w-3 inline mr-1" />
-                Importer depuis URL
+                <Layers className="h-3 w-3" />
+                Scraper toutes les pages
               </button>
               <button
-                onClick={() => setInputValue('Montre-moi les statistiques du site')}
-                className="text-xs bg-gray-100 hover:bg-gray-200 text-gray-600 px-3 py-1.5 rounded-full transition-colors"
+                onClick={() => setInputValue('scraper https://')}
+                className="text-xs bg-gray-100 hover:bg-gray-200 text-gray-600 px-3 py-1.5 rounded-full transition-colors flex items-center gap-1"
               >
-                📊 Statistiques
+                <Link2 className="h-3 w-3" />
+                Une seule page
               </button>
               <button
-                onClick={() => setInputValue('Aide-moi à créer une annonce')}
+                onClick={() => setInputValue('Montre-moi les statistiques')}
                 className="text-xs bg-gray-100 hover:bg-gray-200 text-gray-600 px-3 py-1.5 rounded-full transition-colors"
               >
-                ✨ Créer annonce
+                📊 Stats
+              </button>
+              <button
+                onClick={() => setInputValue('Aide')}
+                className="text-xs bg-gray-100 hover:bg-gray-200 text-gray-600 px-3 py-1.5 rounded-full transition-colors"
+              >
+                ❓ Aide
               </button>
             </div>
           </div>
@@ -459,7 +542,7 @@ export default function AssistantIAPage() {
                 </button>
               </div>
               
-              <div className="flex gap-2">
+              <div className="flex gap-2 flex-wrap">
                 <button
                   onClick={() => selectAllAds(true)}
                   className="text-xs bg-green-100 text-green-700 px-3 py-1.5 rounded-lg hover:bg-green-200"
@@ -497,7 +580,7 @@ export default function AssistantIAPage() {
                 >
                   <div className="flex items-start gap-3">
                     {/* Checkbox */}
-                    <div className={`w-5 h-5 rounded border-2 flex items-center justify-center mt-1 ${
+                    <div className={`w-5 h-5 rounded border-2 flex items-center justify-center mt-1 flex-shrink-0 ${
                       ad.selected ? 'bg-green-500 border-green-500' : 'border-gray-300'
                     }`}>
                       {ad.selected && <CheckCircle className="h-3 w-3 text-white" />}
@@ -526,6 +609,12 @@ export default function AssistantIAPage() {
 
                       {ad.phone && (
                         <p className="text-sm text-gray-500 mt-1">📞 {ad.phone}</p>
+                      )}
+
+                      {ad.sourcePage && (
+                        <p className="text-xs text-gray-400 mt-1 truncate">
+                          📄 {ad.sourcePage}
+                        </p>
                       )}
 
                       <p className="text-sm text-gray-500 mt-2 line-clamp-2">{ad.description}</p>
