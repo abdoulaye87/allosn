@@ -6,7 +6,7 @@ import BottomNav from '@/components/layout/BottomNav'
 import SearchBar from '@/components/home/SearchBar'
 import CategoriesGrid from '@/components/home/CategoriesGrid'
 import FeaturedAds from '@/components/home/FeaturedAds'
-import { Sparkles, TrendingUp, ChevronRight, Zap } from 'lucide-react'
+import { Sparkles, TrendingUp, ChevronRight, Zap, Car, Wrench, Users, ArrowRight } from 'lucide-react'
 import Link from 'next/link'
 
 export default function Home() {
@@ -46,6 +46,52 @@ export default function Home() {
             </Link>
           </div>
         </div>
+
+        {/* 🔥 FEATURED: Covoiturage & Services - TRES VISIBLES */}
+        <section className="space-y-3">
+          <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+            <Sparkles className="h-5 w-5 text-orange-500" />
+            Populaires
+          </h2>
+          
+          <div className="grid grid-cols-2 gap-3">
+            {/* Covoiturage Card */}
+            <Link 
+              href="/categorie/transport" 
+              className="bg-gradient-to-br from-amber-400 to-orange-500 rounded-2xl p-4 text-white relative overflow-hidden group shadow-lg shadow-orange-500/20 active:scale-95 transition-transform"
+            >
+              <div className="absolute top-0 right-0 w-20 h-20 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/2 group-hover:scale-125 transition-transform" />
+              <div className="relative z-10">
+                <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center mb-3">
+                  <Users className="h-6 w-6" />
+                </div>
+                <h3 className="font-bold text-lg">Covoiturage</h3>
+                <p className="text-white/80 text-xs mt-1">Partagez vos trajets</p>
+                <div className="flex items-center gap-1 mt-2 text-white/90 text-sm font-medium">
+                  Voir <ArrowRight className="h-4 w-4" />
+                </div>
+              </div>
+            </Link>
+
+            {/* Services Card */}
+            <Link 
+              href="/categorie/services" 
+              className="bg-gradient-to-br from-emerald-400 to-green-500 rounded-2xl p-4 text-white relative overflow-hidden group shadow-lg shadow-green-500/20 active:scale-95 transition-transform"
+            >
+              <div className="absolute top-0 right-0 w-20 h-20 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/2 group-hover:scale-125 transition-transform" />
+              <div className="relative z-10">
+                <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center mb-3">
+                  <Wrench className="h-6 w-6" />
+                </div>
+                <h3 className="font-bold text-lg">Services</h3>
+                <p className="text-white/80 text-xs mt-1">Artisans & Pros</p>
+                <div className="flex items-center gap-1 mt-2 text-white/90 text-sm font-medium">
+                  Voir <ArrowRight className="h-4 w-4" />
+                </div>
+              </div>
+            </Link>
+          </div>
+        </section>
 
         {/* Search Bar */}
         <SearchBar />
@@ -97,7 +143,7 @@ export default function Home() {
             Villes populaires
           </h2>
           <div className="flex flex-wrap gap-2">
-            {['Dakar', 'Thiès', 'Saint-Louis', 'Mbour', 'Kaolack', 'Rufisque'].map((city) => (
+            {['Dakar', 'Thiès', 'Saint-Louis', 'Mbour', 'Kaolack', 'Rufisque', 'Touba', 'Ziguinchor'].map((city) => (
               <Link
                 key={city}
                 href={`/annonces?ville=${city}`}
@@ -106,6 +152,21 @@ export default function Home() {
                 {city}
               </Link>
             ))}
+          </div>
+        </section>
+
+        {/* All Cities Link */}
+        <section className="bg-gradient-to-r from-blue-500 to-indigo-600 rounded-2xl p-4 text-white">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="font-bold">Toutes les villes du Sénégal</h3>
+              <p className="text-blue-100 text-sm mt-1">14 régions, 46 départements</p>
+            </div>
+            <Link href="/villes">
+              <button className="bg-white text-blue-600 hover:bg-blue-50 px-4 py-2 rounded-xl font-medium text-sm">
+                Explorer
+              </button>
+            </Link>
           </div>
         </section>
 
@@ -123,6 +184,13 @@ export default function Home() {
             </div>
           </div>
         </section>
+
+        {/* Admin link (subtle) */}
+        <div className="text-center pt-4">
+          <Link href="/admin/login" className="text-gray-300 text-xs hover:text-gray-500">
+            Admin
+          </Link>
+        </div>
       </main>
 
       <BottomNav />

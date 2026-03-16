@@ -3,6 +3,7 @@
 
 import { initializeApp, getApps, getApp } from 'firebase/app'
 import { getFirestore } from 'firebase/firestore'
+import { getAuth } from 'firebase/auth'
 
 // Firebase configuration
 const firebaseConfig = {
@@ -20,4 +21,19 @@ const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp()
 // Initialize Cloud Firestore and get a reference to the service
 export const firestore = getFirestore(app)
 
+// Initialize Firebase Auth
+export const auth = getAuth(app)
+
 export default app
+
+// Admin emails - Super Admins have full access
+export const SUPER_ADMIN_EMAILS = [
+  'Abdoulayegueye87@gmail.com',
+  'abdoulayegueye87@gmail.com', // lowercase version
+]
+
+// Check if email is super admin
+export function isSuperAdmin(email: string | null | undefined): boolean {
+  if (!email) return false
+  return SUPER_ADMIN_EMAILS.includes(email.toLowerCase())
+}
