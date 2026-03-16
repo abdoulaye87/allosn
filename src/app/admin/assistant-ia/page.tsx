@@ -6,7 +6,8 @@ import {
   Shield, LogOut, Menu, X, Send, Link2, Bot, Sparkles,
   Globe, FileText, CheckCircle, XCircle, Loader2, Trash2,
   ChevronRight, Eye, Plus, RefreshCw, Copy, Download,
-  ChevronDown, ChevronUp, AlertCircle, Layers
+  ChevronDown, ChevronUp, AlertCircle, Layers, Phone,
+  MapPin, User, ImageIcon, ExternalLink
 } from 'lucide-react'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
@@ -17,15 +18,11 @@ interface Message {
   role: 'user' | 'assistant' | 'system'
   content: string
   timestamp: Date
-  ads?: ScrapedAd[]
+  ads?: DetailedAd[]
   isLoading?: boolean
-  paginationInfo?: {
-    totalPages: number
-    currentPage: number
-  }
 }
 
-interface ScrapedAd {
+interface DetailedAd {
   title: string
   description: string
   price: number | null
@@ -34,7 +31,9 @@ interface ScrapedAd {
   images: string[]
   category: string
   selected?: boolean
-  sourcePage?: string
+  url?: string
+  professionalName?: string
+  address?: string
 }
 
 const adminNav = [
@@ -57,31 +56,35 @@ export default function AssistantIAPage() {
     {
       id: '1',
       role: 'assistant',
-      content: `🤖 **Bonjour ! Je suis l'assistant IA d'AlloSN.**
+      content: `🤖 **Assistant IA AlloSN - Import Intelligent**
 
-Je peux vous aider à :
+Je peux scraper n'importe quel site d'annonces et extraire:
+- 📝 **Titre** et **Description**
+- 📷 **Photos** de l'annonce
+- 📞 **Téléphone** (même caché derrière un bouton)
+- 📍 **Localisation** précise
 
-📌 **Importer depuis une URL**
-• Collez une URL pour scraper les annonces
-• Je détecte automatiquement la pagination
+**Commandes:**
+• \`scraper-deep [URL]\` - **Recommandé** - Entre dans chaque annonce pour extraire tous les détails
+• \`scraper [URL]\` - Scraper rapide d'une seule page
 
-📚 **Scraper TOUTES les pages**
-• Tapez "scraper-all [URL]" pour toutes les pages
-• Je navigue page 1, 2, 3... jusqu'à la fin
+**Exemple:**
+\`scraper-deep https://www.expat-dakar.com/annonces/thies\`
 
-⚡ **Commandes rapides**
-• \`scraper [URL]\` - Une seule page
-• \`scraper-all [URL]\` - Toutes les pages (pagination auto)
-• \`importer\` - Importer les annonces sélectionnées`,
+Je vais:
+1. Trouver toutes les annonces de la page
+2. Entrer dans CHAQUE annonce
+3. Extraire titre, photos, téléphone, description, localisation`,
       timestamp: new Date()
     }
   ])
   const [inputValue, setInputValue] = useState('')
   const [isProcessing, setIsProcessing] = useState(false)
-  const [scrapedAds, setScrapedAds] = useState<ScrapedAd[]>([])
+  const [scrapedAds, setScrapedAds] = useState<DetailedAd[]>([])
   const [showAdsPanel, setShowAdsPanel] = useState(false)
-  const [maxPages, setMaxPages] = useState(10)
-  const [progressInfo, setProgressInfo] = useState<{current: number, total: number} | null>(null)
+  const [maxPages, setMaxPages] = useState(5)
+  const [maxAds, setMaxAds] = useState(30)
+  const [expandedAd, setExpandedAd] = useState<number | null>(null)
   
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -113,14 +116,13 @@ Je peux vous aider à :
     router.push('/admin/login')
   }
 
-  const addMessage = (role: 'user' | 'assistant' | 'system', content: string, ads?: ScrapedAd[], paginationInfo?: { totalPages: number; currentPage: number }) => {
+  const addMessage = (role: 'user' | 'assistant' | 'system', content: string, ads?: DetailedAd[]) => {
     const newMessage: Message = {
       id: Date.now().toString(),
       role,
       content,
       timestamp: new Date(),
-      ads,
-      paginationInfo
+      ads
     }
     setMessages(prev => [...prev, newMessage])
     return newMessage
@@ -148,22 +150,32 @@ Je peux vous aider à :
     setInputValue('')
     addMessage('user', userMessage)
     setIsProcessing(true)
-    setProgressInfo(null)
 
     const urls = extractUrls(userMessage)
-    const isScrapeAll = userMessage.toLowerCase().includes('scraper-all') || userMessage.toLowerCase().includes('toutes les pages')
+    const isDeepScrape = userMessage.toLowerCase().includes('scraper-deep') || 
+                         userMessage.toLowerCase().includes('deep') ||
+                         userMessage.toLowerCase().includes('détail')
     
     if (urls.length > 0) {
-      const loadingMsg = addMessage('assistant', '🔍 Analyse de la page en cours...')
+      const loadingMsg = addMessage('assistant', '🔍 Initialisation du scraping...')
       
       try {
-        // Déterminer l'action
-        const action = isScrapeAll ? 'scrape-all' : 'scrape'
+        const action = isDeepScrape ? 'scrape-deep' : 'scrape'
         
-        if (isScrapeAll) {
-          updateLastMessage(`🔍 **Scraping de toutes les pages en cours...**\n\n` +
-            `📊 Je vais scanner jusqu'à ${maxPages} pages pour extraire toutes les annonces.\n` +
-            `⏳ Cela peut prendre quelques instants...`)
+        if (isDeepScrape) {
+          updateLastMessage(
+            `🔍 **Scraping en profondeur lancé**\n\n` +
+            `📊 Configuration:\n` +
+            `• Pages max: ${maxPages}\n` +
+            `• Annonces max: ${maxAds}\n\n` +
+            `⏳ Étapes:\n` +
+            `1️⃣ Analyse de la page de liste...\n` +
+            `2️⃣ Extraction des liens d'annonces...\n` +
+            `3️⃣ Scraping détaillé de chaque annonce...\n\n` +
+            ` Cela peut prendre quelques minutes...`
+          )
+        } else {
+          updateLastMessage('🔍 Analyse de la page en cours...')
         }
 
         const response = await fetch('/api/ai-import', {
@@ -172,36 +184,43 @@ Je peux vous aider à :
           body: JSON.stringify({
             action: action,
             url: urls[0],
-            maxPages: maxPages
+            maxPages: maxPages,
+            maxAds: maxAds
           })
         })
 
         const data = await response.json()
 
-        // Remove loading message
         setMessages(prev => prev.filter(m => m.id !== loadingMsg.id))
 
         if (data.success && data.ads && data.ads.length > 0) {
-          setScrapedAds(data.ads.map((ad: ScrapedAd) => ({ ...ad, selected: true })))
+          setScrapedAds(data.ads.map((ad: DetailedAd) => ({ ...ad, selected: true })))
           setShowAdsPanel(true)
           
-          const paginationText = data.totalPagesScraped 
-            ? `\n\n📄 **${data.totalPagesScraped} pages analysées**`
-            : (data.paginationDetected ? `\n\n📄 Pagination détectée: ${data.totalPages} pages - Utilisez "scraper-all [URL]" pour tout scraper` : '')
+          const detailsText = data.totalPagesScraped 
+            ? `📄 **${data.totalPagesScraped} pages analysées** | **${data.totalAdLinksFound} liens trouvés**`
+            : ''
+
+          const photosCount = data.ads.reduce((sum: number, ad: DetailedAd) => sum + (ad.images?.length || 0), 0)
+          const phonesCount = data.ads.filter((ad: DetailedAd) => ad.phone).length
           
           addMessage('assistant', 
-            `✅ **${data.totalFound} annonces trouvées** sur ${data.siteName} !${paginationText}\n\n` +
-            `👆 Sélectionnez les annonces à importer dans le panneau de droite, ` +
-            `puis cliquez sur "Importer la sélection".`,
+            `✅ **${data.totalFound} annonces extraites** de ${data.siteName} !\n\n` +
+            `${detailsText}\n\n` +
+            `📊 **Détails extraits:**\n` +
+            `• 📷 ${photosCount} photos trouvées\n` +
+            `• 📞 ${phonesCount} numéros de téléphone\n\n` +
+            `👆 Consultez et sélectionnez les annonces dans le panneau de droite.`,
             data.ads
           )
         } else {
           addMessage('assistant', 
-            '❌ Aucune annonce trouvée sur cette page.\n\n' +
-            '**Conseils:**\n' +
-            '• Vérifiez que l\'URL pointe vers une page de liste d\'annonces\n' +
-            '• Certains sites bloquent le scraping automatique\n' +
-            '• Essayez une autre URL ou catégorie',
+            `❌ **Aucune annonce trouvée**\n\n` +
+            `**Conseils:**\n` +
+            `• Vérifiez que l'URL pointe vers une page d'annonces\n` +
+            `• Utilisez \`scraper-deep [URL]\` pour un scraping complet\n` +
+            `• Certains sites peuvent bloquer le scraping\n\n` +
+            `**URLs testées:** ${data.allAdLinks?.slice(0, 3).join('\n') || 'Aucune'}`,
             []
           )
         }
@@ -210,27 +229,25 @@ Je peux vous aider à :
         addMessage('assistant', '❌ Erreur lors de l\'analyse. Vérifiez l\'URL et réessayez.')
       }
     } else {
-      // Chat normal avec l'IA
+      // Chat normal
       try {
         const response = await fetch('/api/ai-import', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             action: 'chat',
-            message: userMessage,
-            context: 'Admin dashboard AlloSN'
+            message: userMessage
           })
         })
 
         const data = await response.json()
-        addMessage('assistant', data.response || 'Je n\'ai pas compris votre demande.')
+        addMessage('assistant', data.response || 'Je n\'ai pas compris.')
       } catch (error) {
-        addMessage('assistant', '❌ Erreur de connexion. Veuillez réessayer.')
+        addMessage('assistant', '❌ Erreur de connexion.')
       }
     }
 
     setIsProcessing(false)
-    setProgressInfo(null)
   }
 
   const toggleAdSelection = (index: number) => {
@@ -248,7 +265,7 @@ Je peux vous aider à :
     if (selectedAds.length === 0) return
 
     setIsProcessing(true)
-    addMessage('assistant', `⏳ Import de ${selectedAds.length} annonce(s) en cours...\n\n📊 Progression: 0/${selectedAds.length}`)
+    addMessage('assistant', `⏳ Import de ${selectedAds.length} annonce(s)...`)
 
     try {
       const response = await fetch('/api/ai-import', {
@@ -256,8 +273,7 @@ Je peux vous aider à :
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action: 'bulk-import',
-          ads: selectedAds,
-          sourceUrl: 'ai-import'
+          ads: selectedAds
         })
       })
 
@@ -268,22 +284,20 @@ Je peux vous aider à :
           `✅ **Import terminé !**\n\n` +
           `• ✅ Réussies : ${data.successCount}\n` +
           `• ❌ Échouées : ${data.failedCount}\n\n` +
-          `🎉 Les annonces sont maintenant visibles sur AlloSN !\n\n` +
+          `🎉 Les annonces sont sur AlloSN !\n\n` +
           `[Voir les annonces](/admin/annonces)`
         )
         setScrapedAds([])
         setShowAdsPanel(false)
-      } else {
-        addMessage('assistant', '❌ Erreur lors de l\'import. Veuillez réessayer.')
       }
     } catch (error) {
-      addMessage('assistant', '❌ Erreur de connexion lors de l\'import.')
+      addMessage('assistant', '❌ Erreur lors de l\'import.')
     }
 
     setIsProcessing(false)
   }
 
-  const importSingleAd = async (ad: ScrapedAd) => {
+  const importSingleAd = async (ad: DetailedAd) => {
     setIsProcessing(true)
     
     try {
@@ -292,8 +306,7 @@ Je peux vous aider à :
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action: 'create-ad',
-          ad: ad,
-          sourceUrl: ad.sourcePage || 'manual-import'
+          ad: ad
         })
       })
 
@@ -301,15 +314,16 @@ Je peux vous aider à :
       
       if (data.success) {
         addMessage('assistant', 
-          `✅ Annonce créée avec succès !\n\n` +
-          `**Titre :** ${ad.title}\n` +
-          `**ID :** ${data.adId}\n` +
-          `**Code réclamation :** ${data.reclamCode}`
+          `✅ **Annonce créée !**\n\n` +
+          `**Titre:** ${ad.title}\n` +
+          `**Téléphone:** ${ad.phone || 'Non renseigné'}\n` +
+          `**Photos:** ${ad.images?.length || 0}\n` +
+          `**Code:** ${data.reclamCode}`
         )
         setScrapedAds(prev => prev.filter(a => a !== ad))
       }
     } catch (error) {
-      addMessage('assistant', '❌ Erreur lors de la création de l\'annonce.')
+      addMessage('assistant', '❌ Erreur lors de la création.')
     }
 
     setIsProcessing(false)
@@ -318,10 +332,7 @@ Je peux vous aider à :
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-100 flex items-center justify-center">
-        <div className="text-center">
-          <Loader2 className="h-12 w-12 animate-spin text-green-600 mx-auto mb-4" />
-          <p className="text-gray-600">Chargement...</p>
-        </div>
+        <Loader2 className="h-12 w-12 animate-spin text-green-600" />
       </div>
     )
   }
@@ -382,8 +393,8 @@ Je peux vous aider à :
                 <Bot className="h-6 w-6 text-white" />
               </div>
               <div>
-                <h1 className="font-bold text-gray-800">Assistant IA AlloSN</h1>
-                <p className="text-xs text-gray-500">Import automatique multi-pages</p>
+                <h1 className="font-bold text-gray-800">Assistant IA</h1>
+                <p className="text-xs text-gray-500">Import intelligent avec détails</p>
               </div>
             </div>
 
@@ -431,13 +442,6 @@ Je peux vous aider à :
                     })}
                   </div>
 
-                  {message.isLoading && (
-                    <div className="flex items-center gap-2 mt-2 text-gray-400">
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      <span className="text-sm">Traitement...</span>
-                    </div>
-                  )}
-
                   <p className={`text-xs mt-2 ${message.role === 'user' ? 'text-green-200' : 'text-gray-400'}`}>
                     {message.timestamp.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
                   </p>
@@ -450,7 +454,7 @@ Je peux vous aider à :
                 <div className="bg-white rounded-2xl px-4 py-3 shadow-md">
                   <div className="flex items-center gap-2 text-gray-600">
                     <Loader2 className="h-4 w-4 animate-spin" />
-                    <span className="text-sm">L'assistant travaille...</span>
+                    <span className="text-sm">Scraping en cours...</span>
                   </div>
                 </div>
               </div>
@@ -461,19 +465,34 @@ Je peux vous aider à :
 
           {/* Input */}
           <div className="bg-white border-t p-4">
-            {/* Max pages setting */}
-            <div className="flex items-center gap-3 mb-3 text-sm">
-              <span className="text-gray-500">Pages max à scraper:</span>
-              <select
-                value={maxPages}
-                onChange={(e) => setMaxPages(parseInt(e.target.value))}
-                className="border rounded-lg px-2 py-1 text-sm"
-              >
-                <option value={5}>5 pages</option>
-                <option value={10}>10 pages</option>
-                <option value={20}>20 pages</option>
-                <option value={50}>50 pages</option>
-              </select>
+            {/* Settings */}
+            <div className="flex items-center gap-4 mb-3 text-sm flex-wrap">
+              <div className="flex items-center gap-2">
+                <span className="text-gray-500">Pages:</span>
+                <select
+                  value={maxPages}
+                  onChange={(e) => setMaxPages(parseInt(e.target.value))}
+                  className="border rounded px-2 py-1 text-sm"
+                >
+                  <option value={3}>3</option>
+                  <option value={5}>5</option>
+                  <option value={10}>10</option>
+                  <option value={20}>20</option>
+                </select>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-gray-500">Annonces max:</span>
+                <select
+                  value={maxAds}
+                  onChange={(e) => setMaxAds(parseInt(e.target.value))}
+                  className="border rounded px-2 py-1 text-sm"
+                >
+                  <option value={10}>10</option>
+                  <option value={30}>30</option>
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                </select>
+              </div>
             </div>
 
             <div className="flex gap-3">
@@ -481,8 +500,8 @@ Je peux vous aider à :
                 ref={inputRef}
                 value={inputValue}
                 onChange={(e) => setInputValue(e.target.value)}
-                onKeyPress={(e) => e.key === 'Enter' && !e.shiftKey && handleSendMessage()}
-                placeholder="Collez une URL ou tapez scraper-all [URL] pour toutes les pages..."
+                onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
+                placeholder="Collez une URL ou tapez scraper-deep [URL]..."
                 className="flex-1 rounded-xl py-3"
                 disabled={isProcessing}
               />
@@ -498,24 +517,17 @@ Je peux vous aider à :
             {/* Quick actions */}
             <div className="flex flex-wrap gap-2 mt-3">
               <button
-                onClick={() => setInputValue('scraper-all https://')}
+                onClick={() => setInputValue('scraper-deep https://www.expat-dakar.com/annonces/')}
                 className="text-xs bg-green-100 hover:bg-green-200 text-green-700 px-3 py-1.5 rounded-full transition-colors flex items-center gap-1"
               >
                 <Layers className="h-3 w-3" />
-                Scraper toutes les pages
+                Scraper en profondeur
               </button>
               <button
                 onClick={() => setInputValue('scraper https://')}
-                className="text-xs bg-gray-100 hover:bg-gray-200 text-gray-600 px-3 py-1.5 rounded-full transition-colors flex items-center gap-1"
-              >
-                <Link2 className="h-3 w-3" />
-                Une seule page
-              </button>
-              <button
-                onClick={() => setInputValue('Montre-moi les statistiques')}
                 className="text-xs bg-gray-100 hover:bg-gray-200 text-gray-600 px-3 py-1.5 rounded-full transition-colors"
               >
-                📊 Stats
+                Scraper simple
               </button>
               <button
                 onClick={() => setInputValue('Aide')}
@@ -535,7 +547,7 @@ Je peux vous aider à :
               <div className="flex items-center justify-between mb-3">
                 <h2 className="font-bold text-gray-800 flex items-center gap-2">
                   <FileText className="h-5 w-5 text-green-600" />
-                  Annonces extraites ({scrapedAds.filter(a => a.selected).length}/{scrapedAds.length})
+                  Annonces ({scrapedAds.filter(a => a.selected).length}/{scrapedAds.length})
                 </h2>
                 <button onClick={() => setShowAdsPanel(false)} className="text-gray-400 hover:text-gray-600">
                   <X className="h-5 w-5" />
@@ -558,7 +570,7 @@ Je peux vous aider à :
                 <button
                   onClick={importSelectedAds}
                   disabled={scrapedAds.filter(a => a.selected).length === 0 || isProcessing}
-                  className="ml-auto bg-green-600 text-white px-4 py-1.5 rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                  className="ml-auto bg-green-600 text-white px-4 py-1.5 rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-50 flex items-center gap-2"
                 >
                   {isProcessing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
                   Importer ({scrapedAds.filter(a => a.selected).length})
@@ -571,66 +583,137 @@ Je peux vous aider à :
               {scrapedAds.map((ad, index) => (
                 <div
                   key={index}
-                  onClick={() => toggleAdSelection(index)}
-                  className={`border rounded-xl p-4 cursor-pointer transition-all ${
+                  className={`border rounded-xl overflow-hidden transition-all ${
                     ad.selected 
-                      ? 'border-green-500 bg-green-50 ring-2 ring-green-200' 
-                      : 'border-gray-200 bg-white hover:border-gray-300'
+                      ? 'border-green-500 bg-green-50' 
+                      : 'border-gray-200 bg-white'
                   }`}
                 >
-                  <div className="flex items-start gap-3">
-                    {/* Checkbox */}
-                    <div className={`w-5 h-5 rounded border-2 flex items-center justify-center mt-1 flex-shrink-0 ${
-                      ad.selected ? 'bg-green-500 border-green-500' : 'border-gray-300'
-                    }`}>
-                      {ad.selected && <CheckCircle className="h-3 w-3 text-white" />}
-                    </div>
+                  {/* Header clickable */}
+                  <div 
+                    onClick={() => toggleAdSelection(index)}
+                    className="p-4 cursor-pointer"
+                  >
+                    <div className="flex items-start gap-3">
+                      {/* Checkbox */}
+                      <div className={`w-5 h-5 rounded border-2 flex items-center justify-center mt-1 flex-shrink-0 ${
+                        ad.selected ? 'bg-green-500 border-green-500' : 'border-gray-300'
+                      }`}>
+                        {ad.selected && <CheckCircle className="h-3 w-3 text-white" />}
+                      </div>
 
-                    <div className="flex-1 min-w-0">
-                      <h3 className="font-semibold text-gray-800 truncate">{ad.title}</h3>
-                      
-                      <div className="flex flex-wrap gap-2 mt-2 text-xs">
-                        {ad.price && (
-                          <span className="bg-green-100 text-green-700 px-2 py-0.5 rounded">
-                            {ad.price.toLocaleString()} FCFA
-                          </span>
+                      <div className="flex-1 min-w-0">
+                        <h3 className="font-semibold text-gray-800">{ad.title}</h3>
+                        
+                        <div className="flex flex-wrap gap-2 mt-2 text-xs">
+                          {ad.price && (
+                            <span className="bg-green-100 text-green-700 px-2 py-0.5 rounded font-medium">
+                              {ad.price.toLocaleString()} FCFA
+                            </span>
+                          )}
+                          {ad.city && (
+                            <span className="bg-gray-100 text-gray-600 px-2 py-0.5 rounded flex items-center gap-1">
+                              <MapPin className="h-3 w-3" />
+                              {ad.city}
+                            </span>
+                          )}
+                          {ad.category && (
+                            <span className="bg-orange-100 text-orange-700 px-2 py-0.5 rounded">
+                              {ad.category}
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Phone - important! */}
+                        {ad.phone && (
+                          <div className="mt-2 flex items-center gap-2 text-green-600 font-medium">
+                            <Phone className="h-4 w-4" />
+                            {ad.phone}
+                          </div>
                         )}
-                        {ad.city && (
-                          <span className="bg-gray-100 text-gray-600 px-2 py-0.5 rounded">
-                            📍 {ad.city}
-                          </span>
-                        )}
-                        {ad.category && (
-                          <span className="bg-orange-100 text-orange-700 px-2 py-0.5 rounded">
-                            {ad.category}
-                          </span>
+
+                        {/* Photos indicator */}
+                        {ad.images && ad.images.length > 0 && (
+                          <div className="mt-2 flex items-center gap-1 text-gray-500 text-xs">
+                            <ImageIcon className="h-3 w-3" />
+                            {ad.images.length} photo(s)
+                          </div>
                         )}
                       </div>
 
-                      {ad.phone && (
-                        <p className="text-sm text-gray-500 mt-1">📞 {ad.phone}</p>
-                      )}
-
-                      {ad.sourcePage && (
-                        <p className="text-xs text-gray-400 mt-1 truncate">
-                          📄 {ad.sourcePage}
-                        </p>
-                      )}
-
-                      <p className="text-sm text-gray-500 mt-2 line-clamp-2">{ad.description}</p>
-
-                      {/* Actions */}
-                      <div className="flex gap-2 mt-3">
-                        <button
-                          onClick={(e) => { e.stopPropagation(); importSingleAd(ad); }}
-                          disabled={isProcessing}
-                          className="text-xs bg-green-600 text-white px-3 py-1 rounded hover:bg-green-700 disabled:opacity-50"
-                        >
-                          Importer celle-ci
-                        </button>
-                      </div>
+                      {/* Expand button */}
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setExpandedAd(expandedAd === index ? null : index)
+                        }}
+                        className="text-gray-400 hover:text-gray-600 p-1"
+                      >
+                        {expandedAd === index ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}
+                      </button>
                     </div>
                   </div>
+
+                  {/* Expanded details */}
+                  {expandedAd === index && (
+                    <div className="border-t bg-gray-50 p-4 space-y-3">
+                      {/* Images */}
+                      {ad.images && ad.images.length > 0 && (
+                        <div className="grid grid-cols-3 gap-2">
+                          {ad.images.slice(0, 6).map((img, i) => (
+                            <img 
+                              key={i} 
+                              src={img} 
+                              alt="" 
+                              className="w-full h-20 object-cover rounded-lg"
+                              onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
+                            />
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Professional name */}
+                      {ad.professionalName && (
+                        <div className="flex items-center gap-2 text-gray-600">
+                          <User className="h-4 w-4" />
+                          {ad.professionalName}
+                        </div>
+                      )}
+
+                      {/* Address */}
+                      {ad.address && (
+                        <div className="flex items-center gap-2 text-gray-600 text-sm">
+                          <MapPin className="h-4 w-4" />
+                          {ad.address}
+                        </div>
+                      )}
+
+                      {/* Description */}
+                      <p className="text-sm text-gray-600 whitespace-pre-line">{ad.description}</p>
+
+                      {/* Source URL */}
+                      {ad.url && (
+                        <a 
+                          href={ad.url} 
+                          target="_blank" 
+                          rel="noopener noreferrer"
+                          className="text-xs text-blue-600 hover:underline flex items-center gap-1"
+                        >
+                          <ExternalLink className="h-3 w-3" />
+                          Voir l'annonce originale
+                        </a>
+                      )}
+
+                      {/* Import button */}
+                      <button
+                        onClick={() => importSingleAd(ad)}
+                        disabled={isProcessing}
+                        className="w-full bg-green-600 text-white py-2 rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-50"
+                      >
+                        {isProcessing ? 'Import...' : 'Importer cette annonce'}
+                      </button>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
