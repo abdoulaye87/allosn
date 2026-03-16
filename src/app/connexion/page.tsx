@@ -3,10 +3,16 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { User, Eye, EyeOff, AlertCircle, ArrowLeft } from 'lucide-react'
+import { User, Eye, EyeOff, AlertCircle, ArrowLeft, Shield } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import MobileHeader from '@/components/layout/MobileHeader'
+
+// Super Admin credentials
+const SUPER_ADMIN = {
+  email: 'Abdoulayegueye87@gmail.com',
+  password: 'Technique87@'
+}
 
 export default function ConnexionPage() {
   const router = useRouter()
@@ -24,19 +30,28 @@ export default function ConnexionPage() {
     try {
       // Simulate API call
       await new Promise(resolve => setTimeout(resolve, 1000))
-      
-      // For demo, accept any email/password
-      // In production, this would validate against Firebase Auth
-      if (email && password) {
-        localStorage.setItem('userLoggedIn', 'true')
-        localStorage.setItem('userEmail', email)
-        router.push('/')
-      } else {
+
+      if (!email || !password) {
         setError('Veuillez remplir tous les champs')
+        setLoading(false)
+        return
       }
+
+      // Check if admin credentials
+      if (email.toLowerCase() === SUPER_ADMIN.email.toLowerCase() && password === SUPER_ADMIN.password) {
+        localStorage.setItem('adminLoggedIn', 'true')
+        localStorage.setItem('adminEmail', email)
+        router.push('/admin')
+        return
+      }
+
+      // For demo, accept any other email/password as regular user
+      // In production, this would validate against Firebase Auth
+      localStorage.setItem('userLoggedIn', 'true')
+      localStorage.setItem('userEmail', email)
+      router.push('/profil')
     } catch {
       setError('Une erreur est survenue')
-    } finally {
       setLoading(false)
     }
   }
