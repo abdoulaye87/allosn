@@ -214,6 +214,24 @@ export default function ProfilPage() {
           </div>
         </div>
 
+        {/* Quick Actions - Always visible */}
+        <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
+          <div className="divide-y divide-gray-100">
+            <Link href="/publier" className="p-4 flex items-center justify-between hover:bg-gray-50">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
+                  <Package className="h-5 w-5 text-green-600" />
+                </div>
+                <div>
+                  <p className="font-medium text-gray-800">Publier une annonce</p>
+                  <p className="text-xs text-gray-500">C'est gratuit !</p>
+                </div>
+              </div>
+              <ChevronRight className="h-5 w-5 text-gray-400" />
+            </Link>
+          </div>
+        </div>
+
         {/* Tabs */}
         <div className="bg-white rounded-xl shadow-sm p-1 flex">
           {[
@@ -226,7 +244,7 @@ export default function ProfilPage() {
               onClick={() => setActiveTab(tab.id as any)}
               className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-lg font-medium text-sm transition-colors ${
                 activeTab === tab.id
-                  ? 'bg-orange-500 text-white'
+                  ? 'bg-green-600 text-white'
                   : 'text-gray-600 hover:bg-gray-50'
               }`}
             >
@@ -351,13 +369,6 @@ export default function ProfilPage() {
             {/* Quick Actions */}
             <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
               <div className="divide-y divide-gray-100">
-                <Link href="/publier" className="p-4 flex items-center justify-between hover:bg-gray-50">
-                  <div className="flex items-center gap-3">
-                    <Package className="h-5 w-5 text-orange-500" />
-                    <span className="text-gray-800">Publier une annonce</span>
-                  </div>
-                  <ChevronRight className="h-5 w-5 text-gray-400" />
-                </Link>
                 <Link href="/admin/login" className="p-4 flex items-center justify-between hover:bg-gray-50">
                   <div className="flex items-center gap-3">
                     <Shield className="h-5 w-5 text-purple-500" />
@@ -367,17 +378,17 @@ export default function ProfilPage() {
                 </Link>
               </div>
             </div>
-
-            {/* Logout */}
-            <button
-              onClick={handleLogout}
-              className="w-full bg-white rounded-2xl shadow-sm p-4 flex items-center justify-center gap-2 text-red-500 font-medium hover:bg-red-50"
-            >
-              <LogOut className="h-5 w-5" />
-              Se déconnecter
-            </button>
           </div>
         )}
+
+        {/* Logout Button - Always visible at bottom */}
+        <button
+          onClick={handleLogout}
+          className="w-full bg-white rounded-2xl shadow-sm p-4 flex items-center justify-center gap-3 text-red-500 font-semibold hover:bg-red-50 transition-colors border-2 border-red-200"
+        >
+          <LogOut className="h-5 w-5" />
+          Se déconnecter
+        </button>
       </main>
 
       <BottomNav />
