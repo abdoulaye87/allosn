@@ -11,12 +11,9 @@ interface DetailedAd {
   images: string[]
   category: string
   url?: string
-  sourcePage?: string
-  professionalName?: string
-  address?: string
 }
 
-// Fonction pour appeler l'IA
+// Appel IA
 async function callAI(prompt: string, systemPrompt: string): Promise<string> {
   try {
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -36,276 +33,212 @@ async function callAI(prompt: string, systemPrompt: string): Promise<string> {
       })
     })
 
-    if (!response.ok) {
-      console.error('AI API error:', response.status)
-      return ''
-    }
-
+    if (!response.ok) return ''
     const data = await response.json()
     return data.choices?.[0]?.message?.content || ''
-  } catch (error) {
-    console.error('AI call error:', error)
+  } catch {
     return ''
   }
 }
 
-// Scraper une page web
-async function scrapeWebPage(url: string): Promise<string> {
+// Scraper une page
+async function scrapePage(url: string): Promise<string> {
   try {
     const response = await fetch(url, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-        'Accept-Language': 'fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7',
-        'Accept-Encoding': 'gzip, deflate, br',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'fr-FR,fr;q=0.9',
+        'Accept-Encoding': 'gzip, deflate',
         'Connection': 'keep-alive',
-        'Upgrade-Insecure-Requests': '1',
-        'Sec-Fetch-Dest': 'document',
-        'Sec-Fetch-Mode': 'navigate',
-        'Sec-Fetch-Site': 'none',
-        'Sec-Fetch-User': '?1',
-        'Cache-Control': 'max-age=0',
       },
       redirect: 'follow'
     })
     
-    if (!response.ok) {
-      console.error(`HTTP ${response.status} for ${url}`)
-      return ''
-    }
-    
+    if (!response.ok) return ''
     return await response.text()
-  } catch (error: any) {
-    console.error('Scrape error:', error.message)
+  } catch {
     return ''
   }
 }
 
-// Extraire les liens d'annonces
-function extractAdLinksFromListing(html: string, baseUrl: string): string[] {
-  const links: Set<string> = new Set()
+// Trouver TOUS les liens d'annonces sur la page de liste
+function findAllAdLinks(html: string, baseUrl: string): string[] {
+  const links = new Set<string>()
   const base = new URL(baseUrl)
 
-  // Patterns pour expat-dakar.com
-  const patterns = [
-    /href=["'](\/annonce\/[^"']+)["']/gi,
-    /href=["']([^"']*\/annonce\/[^"']+\d{5,}[^"']*)["']/gi,
-    /data-href=["'](\/annonce\/[^"']+)["']/gi,
-  ]
+  // APPROCHE 1: Regex simples pour les liens
+  // Capture tous les href
+  const allHrefs = html.matchAll(/href=["']([^"']+)["']/gi)
+  
+  for (const match of allHrefs) {
+    let link = match[1]
+    
+    // Ignorer les liens de navigation, pagination, etc.
+    const ignorePatterns = [
+      /page=/i, /\/page\//i, /\?sort=/i, /\/login/i, /\/register/i,
+      /\/contact/i, /\/about/i, /\/help/i, /\/terms/i, /\/privacy/i,
+      /javascript:/i, /mailto:/i, /tel:/i, /#/, /\?filter=/i,
+      /google/i, /facebook/i, /twitter/i, /instagram/i, /whatsapp/i,
+      /\/ads\//i, /\/pub/i, /\/sponsor/i, /advert/i, /banner/i,
+    ]
+    
+    if (ignorePatterns.some(p => p.test(link))) continue
+    
+    // Chercher les liens qui ressemblent à des annonces
+    // Pattern pour expat-dakar: /annonce/titre-id
+    const isAdLink = 
+      /\/annonce\//i.test(link) ||
+      /-\d{5,}/.test(link) || // ID numérique dans l'URL
+      /\/ad\//i.test(link) ||
+      /\/listing\//i.test(link) ||
+      /\/offer\//i.test(link) ||
+      /\/item\//i.test(link)
+    
+    // Ignorer les liens de liste (pas des annonces individuelles)
+    const isListPage = 
+      /\/annonces\?/i.test(link) ||
+      /\/annonces\/?$/i.test(link) ||
+      link === '/' ||
+      link === baseUrl ||
+      link.length < 15
+    
+    if (isAdLink && !isListPage) {
+      // Convertir en URL absolue
+      if (link.startsWith('/')) {
+        link = `${base.origin}${link}`
+      } else if (!link.startsWith('http')) {
+        link = `${base.origin}/${link}`
+      }
+      
+      // Vérifier que c'est bien une annonce (contient un ID)
+      if (/\d{4,}/.test(link)) {
+        links.add(link)
+      }
+    }
+  }
 
-  for (const pattern of patterns) {
-    try {
-      const matches = html.matchAll(pattern)
-      for (const match of matches) {
-        let link = match[1]
-        
-        link = link.replace(/&amp;/g, '&')
-        link = link.split('#')[0]
-        
-        if (link.includes('page=') || link.includes('/page/') || link.length < 10) {
-          continue
-        }
-        
+  // APPROCHE 2: Chercher dans les structures HTML spécifiques
+  // Pour expat-dakar, les annonces sont souvent dans des div avec des classes spécifiques
+  
+  // Chercher les liens dans les conteneurs d'annonces (pas de pub)
+  const adContainerPatterns = [
+    /<div[^>]*class=["'][^"']*annonce[^"']*["'][^>]*>([\s\S]*?)<\/div>/gi,
+    /<div[^>]*class=["'][^"']*listing[^"']*["'][^>]*>([\s\S]*?)<\/div>/gi,
+    /<div[^>]*class=["'][^"']*item[^"']*["'][^>]*>([\s\S]*?)<\/div>/gi,
+    /<article[^>]*>([\s\S]*?)<\/article>/gi,
+  ]
+  
+  for (const pattern of adContainerPatterns) {
+    const containers = html.matchAll(pattern)
+    for (const container of containers) {
+      const containerHtml = container[1]
+      const hrefMatches = containerHtml.matchAll(/href=["']([^"']+)["']/gi)
+      for (const hrefMatch of hrefMatches) {
+        let link = hrefMatch[1]
         if (link.startsWith('/')) {
           link = `${base.origin}${link}`
-        } else if (!link.startsWith('http')) {
-          link = `${base.origin}/${link}`
         }
-        
-        if (link.includes('/annonce') && !link.includes('/annonces?')) {
+        if (/\/annonce\//i.test(link) || /\d{5,}/.test(link)) {
           links.add(link)
         }
       }
-    } catch (e) {
-      console.error('Pattern error:', e)
     }
   }
 
   return Array.from(links)
 }
 
-// Extraire les images du HTML
-function extractImages(html: string, url: string): string[] {
-  const images: string[] = []
-  const base = new URL(url)
-  
-  // Patterns pour les images
-  const patterns = [
-    /<img[^>]+src=["']([^"']+)["']/gi,
-    /<img[^>]+data-src=["']([^"']+)["']/gi,
-    /data-lazy-src=["']([^"']+)["']/gi,
-    /srcset=["']([^"']+)["']/gi,
+// Filtrer les publicités dans le contenu
+function filterAdsFromContent(html: string): string {
+  // Supprimer les blocs de publicité
+  const adPatterns = [
+    /<div[^>]*class=["'][^"']*(?:ad|ads|pub|sponsor|banner|promo)[^"']*["'][^>]*>[\s\S]*?<\/div>/gi,
+    /<aside[^>]*>[\s\S]*?<\/aside>/gi,
+    /<div[^>]*id=["'][^"']*(?:ad|ads|pub|sidebar)[^"']*["'][^>]*>[\s\S]*?<\/div>/gi,
+    /<script[^>]*>[\s\S]*?<\/script>/gi,
+    /<style[^>]*>[\s\S]*?<\/style>/gi,
+    /<!--[\s\S]*?-->/g,
   ]
   
-  for (const pattern of patterns) {
-    const matches = html.matchAll(pattern)
-    for (const match of matches) {
-      let imgUrl = match[1]
-      
-      // Prendre la première image du srcset
-      if (imgUrl.includes(' ')) {
-        imgUrl = imgUrl.split(' ')[0]
-      }
-      
-      if (imgUrl.startsWith('//')) {
-        imgUrl = 'https:' + imgUrl
-      } else if (imgUrl.startsWith('/')) {
-        imgUrl = `${base.origin}${imgUrl}`
-      }
-      
-      // Filtrer
-      const ext = imgUrl.toLowerCase()
-      if ((ext.includes('.jpg') || ext.includes('.jpeg') || ext.includes('.png') || ext.includes('.webp')) &&
-          !imgUrl.includes('logo') &&
-          !imgUrl.includes('avatar') &&
-          !imgUrl.includes('icon') &&
-          !imgUrl.includes('banner') &&
-          !imgUrl.includes('pub') &&
-          !imgUrl.includes('ads/') &&
-          imgUrl.length > 20) {
-        images.push(imgUrl)
-      }
-    }
+  let cleanHtml = html
+  for (const pattern of adPatterns) {
+    cleanHtml = cleanHtml.replace(pattern, '')
   }
-  
-  return [...new Set(images)].slice(0, 10)
+  return cleanHtml
 }
 
-// Extraire les détails d'une annonce - VERSION SIMPLIFIÉE
+// Extraire les détails d'une annonce individuelle
 async function extractAdDetails(html: string, url: string): Promise<DetailedAd | null> {
-  try {
-    // 1. Extraire le titre
-    let title = ''
-    const titleMatch = html.match(/<h1[^>]*>([^<]+)<\/h1>/i) ||
-                       html.match(/<title>([^<]+)<\/title>/i) ||
-                       html.match(/class=["'][^"']*title[^"']*["'][^>]*>([^<]+)</i)
-    if (titleMatch) {
-      title = titleMatch[1].trim().replace(/\s+/g, ' ')
-    }
+  // Filtrer les pub
+  const cleanHtml = filterAdsFromContent(html)
+  
+  // Texte brut pour l'IA
+  const textContent = cleanHtml
+    .replace(/<nav[^>]*>[\s\S]*?<\/nav>/gi, '')
+    .replace(/<footer[^>]*>[\s\S]*?<\/footer>/gi, '')
+    .replace(/<header[^>]*>[\s\S]*?<\/header>/gi, '')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
 
-    // 2. Extraire la description
-    let description = ''
-    const descMatch = html.match(/class=["'][^"']*description[^"']*["'][^>]*>([\s\S]*?)<\/(?:div|p|span)>/i) ||
-                      html.match(/id=["']description[^"']*["'][^>]*>([\s\S]*?)<\/div>/i) ||
-                      html.match(/<meta[^>]+name=["']description["'][^>]+content=["']([^"']+)["']/i)
-    if (descMatch) {
-      description = descMatch[1]
-        .replace(/<[^>]+>/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim()
-        .substring(0, 2000)
-    }
-
-    // 3. Extraire le prix
-    let price: number | null = null
-    const priceMatch = html.match(/(\d[\d\s\.]*)\s*(?:FCFA|CFA|F|€|EUR)/i) ||
-                       html.match(/prix[^<]*[:\s]+(\d[\d\s\.]*)/i) ||
-                       html.match(/(\d{4,})/)
-    if (priceMatch) {
-      price = parseInt(priceMatch[1].replace(/\s/g, '').replace(/\./g, ''))
-    }
-
-    // 4. Extraire le téléphone - IMPORTANT
-    let phone = ''
-    // Chercher les numéros sénégalais (77, 78, 76, 70, 75, 33)
-    const phonePatterns = [
-      /(7[0-8]\s?[\d\s]{7,9})/g,
-      /(33\s?[\d\s]{7,9})/g,
-      /(\+221\s?7[0-8][\d\s]{7})/g,
-      /(\+221\s?33[\d\s]{7})/g,
-      /tel:([0-9+\s]+)/gi,
-      /t[eé]l[^<]*[:\s]+([0-9\s]+)/i,
-    ]
+  // Extraire les images
+  const images: string[] = []
+  const base = new URL(url)
+  const imgMatches = html.matchAll(/<img[^>]+(?:src|data-src)=["']([^"']+)["']/gi)
+  for (const match of imgMatches) {
+    let imgUrl = match[1]
+    if (imgUrl.startsWith('//')) imgUrl = 'https:' + imgUrl
+    else if (imgUrl.startsWith('/')) imgUrl = `${base.origin}${imgUrl}`
     
-    for (const pattern of phonePatterns) {
-      const matches = html.matchAll(pattern)
-      for (const match of matches) {
-        let p = match[1].replace(/\s/g, '')
-        if (p.length >= 9 && p.length <= 14) {
-          phone = p
-          break
-        }
-      }
-      if (phone) break
+    const lower = imgUrl.toLowerCase()
+    if ((lower.includes('.jpg') || lower.includes('.jpeg') || lower.includes('.png') || lower.includes('.webp')) &&
+        !lower.includes('logo') && !lower.includes('avatar') && !lower.includes('icon') &&
+        !lower.includes('banner') && !lower.includes('pub') && !lower.includes('ad')) {
+      images.push(imgUrl)
     }
+  }
 
-    // 5. Extraire la ville/localisation
-    let city = ''
-    const cityMatch = html.match(/class=["'][^"']*(?:location|ville|city|localisation)[^"']*["'][^>]*>([^<]+)</i) ||
-                      html.match(/(?:ville|city|localisation)[^<]*[:\s]+([^<,\n]+)/i)
-    if (cityMatch) {
-      city = cityMatch[1].trim()
-    }
+  // Utiliser l'IA pour extraire les infos
+  const prompt = `Tu es un expert en extraction de données d'annonces sénégalaises.
 
-    // 6. Extraire les images
-    const images = extractImages(html, url)
+Analyse cette annonce et extrait les informations:
 
-    // 7. Si pas de titre trouvé, essayer avec l'IA
-    if (!title || title.length < 5) {
-      const textContent = html
-        .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
-        .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
-        .replace(/<[^>]+>/g, ' ')
-        .replace(/\s+/g, ' ')
-        .substring(0, 5000)
+${textContent.substring(0, 8000)}
 
-      const aiPrompt = `Extrait les informations de cette annonce:
+URL: ${url}
 
-${textContent}
+IMPORTANT:
+- Le téléphone peut être caché derrière un bouton "Afficher le numéro". Cherche les patterns: 77, 78, 76, 70, 33 suivis de 6-7 chiffres
+- Le prix est en FCFA, extrait le nombre uniquement
+- Ignore les publicités
 
-Retourne un JSON avec: title, description, price (nombre), city, phone, category (immobilier/services/transport/vente/location/emploi).
+Retourne un JSON uniquement:
+{"title":"...","description":"...","price":150000,"city":"Dakar","phone":"771234567","category":"immobilier"}`
 
-JSON uniquement:
-{"title":"...","description":"...","price":N,"city":"...","phone":"...","category":"..."}`
+  const response = await callAI(prompt, 'Tu extrais des données d\'annonces. Réponds uniquement en JSON valide.')
 
-      const aiResponse = await callAI(aiPrompt, 'Tu extrais des données. JSON uniquement.')
-      
-      if (aiResponse) {
-        try {
-          const jsonMatch = aiResponse.match(/\{[\s\S]*\}/)
-          if (jsonMatch) {
-            const data = JSON.parse(jsonMatch[0])
-            title = data.title || title
-            description = data.description || description
-            price = data.price || price
-            city = data.city || city
-            phone = data.phone || phone
-          }
-        } catch {}
-      }
-    }
+  if (!response) return null
 
-    // Déterminer la catégorie
-    let category = 'vente'
-    const lowerHtml = html.toLowerCase()
-    if (lowerHtml.includes('appartement') || lowerHtml.includes('maison') || lowerHtml.includes('terrain') || lowerHtml.includes('immobilier')) {
-      category = 'immobilier'
-    } else if (lowerHtml.includes('voiture') || lowerHtml.includes('moto') || lowerHtml.includes('véhicule') || lowerHtml.includes('auto')) {
-      category = 'transport'
-    } else if (lowerHtml.includes('emploi') || lowerHtml.includes('recrutement') || lowerHtml.includes('travail')) {
-      category = 'emploi'
-    } else if (lowerHtml.includes('service') || lowerHtml.includes('prestation')) {
-      category = 'services'
-    }
-
-    // Vérifier qu'on a au minimum un titre
-    if (!title || title.length < 3) {
-      console.log('No title found for:', url)
-      return null
-    }
+  try {
+    const jsonMatch = response.match(/\{[\s\S]*\}/)
+    if (!jsonMatch) return null
+    
+    const data = JSON.parse(jsonMatch[0])
+    
+    if (!data.title || data.title.length < 3) return null
 
     return {
-      title,
-      description,
-      price,
-      city,
-      phone,
-      images,
-      category,
+      title: data.title,
+      description: data.description || '',
+      price: data.price || null,
+      city: data.city || '',
+      phone: data.phone || '',
+      images: [...new Set(images)].slice(0, 8),
+      category: data.category || 'vente',
       url
     }
-  } catch (error) {
-    console.error('Error extracting details:', error)
+  } catch {
     return null
   }
 }
@@ -315,114 +248,119 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
     const { url, action, ads, maxAds } = body
 
-    // Action: Scraping en profondeur
+    // SCRAPE DEEP - Entrer dans chaque annonce
     if (action === 'scrape-deep' || action === 'scrape-all') {
       if (!url) {
         return NextResponse.json({ error: 'URL requise' }, { status: 400 })
       }
 
-      const maxAdsToScrape = maxAds || 20
+      const limit = maxAds || 50 // Augmenté à 50 par défaut
       const allAds: DetailedAd[] = []
-      const processedUrls = new Set<string>()
+      const processed = new Set<string>()
 
       // 1. Scraper la page de liste
-      console.log('Scraping listing page:', url)
-      const listingHtml = await scrapeWebPage(url)
+      console.log(`📄 Scraping page de liste: ${url}`)
+      const listingHtml = await scrapePage(url)
+      
       if (!listingHtml) {
         return NextResponse.json({ error: 'Impossible d\'accéder à la page' }, { status: 400 })
       }
 
-      // 2. Extraire les liens
-      let adLinks = extractAdLinksFromListing(listingHtml, url)
-      console.log('Found links:', adLinks.length)
+      // 2. Trouver TOUS les liens d'annonces
+      let adLinks = findAllAdLinks(listingHtml, url)
+      console.log(`🔗 ${adLinks.length} liens d'annonces trouvés`)
 
-      // Si pas de liens, utiliser l'IA pour en trouver
-      if (adLinks.length === 0) {
-        const textContent = listingHtml.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').substring(0, 10000)
-        const aiPrompt = `Trouve tous les liens vers des annonces dans ce contenu. Retourne un JSON: {"links": ["url1", "url2"]}
+      // 3. Si pas assez de liens, utiliser l'IA pour en trouver plus
+      if (adLinks.length < 5) {
+        const text = listingHtml.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').substring(0, 10000)
+        const aiPrompt = `Trouve tous les liens vers des annonces individuelles dans ce contenu.
+Ignore les publicités et les liens de navigation.
+Retourne un JSON: {"links": ["url1", "url2", ...]}
 
-Contenu: ${textContent}
-Base URL: ${url}`
-
+Contenu: ${text}
+URL de base: ${url}`
+        
         const aiResponse = await callAI(aiPrompt, 'JSON uniquement.')
-        if (aiResponse) {
-          try {
-            const jsonMatch = aiResponse.match(/\{[\s\S]*\}/)
-            if (jsonMatch) {
-              const data = JSON.parse(jsonMatch[0])
-              if (data.links && Array.isArray(data.links)) {
-                const base = new URL(url)
-                adLinks = data.links.map((l: string) => {
-                  if (l.startsWith('/')) return `${base.origin}${l}`
-                  return l
-                })
-              }
+        try {
+          const jsonMatch = aiResponse.match(/\{[\s\S]*\}/)
+          if (jsonMatch) {
+            const data = JSON.parse(jsonMatch[0])
+            if (data.links) {
+              const base = new URL(url)
+              const aiLinks = data.links.map((l: string) => {
+                if (l.startsWith('/')) return `${base.origin}${l}`
+                return l
+              })
+              adLinks = [...new Set([...adLinks, ...aiLinks])]
             }
-          } catch {}
-        }
+          }
+        } catch {}
       }
 
-      adLinks = [...new Set(adLinks)].slice(0, maxAdsToScrape)
-      console.log('Unique links to scrape:', adLinks.length)
+      // 4. Limiter le nombre
+      adLinks = adLinks.slice(0, limit)
+      console.log(`🎯 ${adLinks.length} liens à scraper`)
 
-      // 3. Scraper chaque annonce
+      // 5. Entrer dans CHAQUE annonce
       for (let i = 0; i < adLinks.length; i++) {
         const adUrl = adLinks[i]
-        if (processedUrls.has(adUrl)) continue
-        processedUrls.add(adUrl)
+        
+        if (processed.has(adUrl)) continue
+        processed.add(adUrl)
 
-        console.log(`Scraping ${i + 1}/${adLinks.length}:`, adUrl)
+        console.log(`📍 [${i + 1}/${adLinks.length}] Scraping: ${adUrl}`)
 
-        const adHtml = await scrapeWebPage(adUrl)
+        const adHtml = await scrapePage(adUrl)
         if (!adHtml) {
-          console.log('Failed to fetch:', adUrl)
+          console.log(`   ❌ Impossible de charger`)
           continue
         }
 
         const adDetails = await extractAdDetails(adHtml, adUrl)
         if (adDetails) {
           allAds.push(adDetails)
-          console.log('✅ Extracted:', adDetails.title)
+          console.log(`   ✅ ${adDetails.title}`)
         } else {
-          console.log('❌ Failed to extract from:', adUrl)
+          console.log(`   ❌ Extraction échouée`)
         }
 
-        await new Promise(resolve => setTimeout(resolve, 200))
+        // Petit délai
+        await new Promise(r => setTimeout(r, 150))
       }
+
+      console.log(`\n✅ TOTAL: ${allAds.length} annonces extraites`)
 
       return NextResponse.json({
         success: true,
         siteName: new URL(url).hostname,
         totalFound: allAds.length,
-        totalAdLinksFound: adLinks.length,
+        totalLinksFound: adLinks.length,
         ads: allAds,
         sourceUrl: url
       })
     }
 
-    // Action: Scraping simple
+    // SCRAPE SIMPLE
     if (action === 'scrape') {
       if (!url) {
         return NextResponse.json({ error: 'URL requise' }, { status: 400 })
       }
 
-      const html = await scrapeWebPage(url)
+      const html = await scrapePage(url)
       if (!html) {
-        return NextResponse.json({ error: 'Impossible de récupérer le contenu' }, { status: 400 })
+        return NextResponse.json({ error: 'Impossible de récupérer' }, { status: 400 })
       }
 
-      let adLinks = extractAdLinksFromListing(html, url)
+      const adLinks = findAllAdLinks(html, url).slice(0, 10)
       const ads: DetailedAd[] = []
 
-      for (let i = 0; i < Math.min(adLinks.length, 5); i++) {
-        const adHtml = await scrapeWebPage(adLinks[i])
+      for (const adUrl of adLinks) {
+        const adHtml = await scrapePage(adUrl)
         if (adHtml) {
-          const adDetails = await extractAdDetails(adHtml, adLinks[i])
-          if (adDetails) {
-            ads.push(adDetails)
-          }
+          const details = await extractAdDetails(adHtml, adUrl)
+          if (details) ads.push(details)
         }
-        await new Promise(resolve => setTimeout(resolve, 200))
+        await new Promise(r => setTimeout(r, 150))
       }
 
       return NextResponse.json({
@@ -432,11 +370,11 @@ Base URL: ${url}`
         totalLinksFound: adLinks.length,
         ads,
         sourceUrl: url,
-        allAdLinks: adLinks.slice(0, 10)
+        allAdLinks: adLinks
       })
     }
 
-    // Action: Créer une annonce
+    // CREATE AD
     if (action === 'create-ad') {
       const { ad } = body
       
@@ -446,15 +384,14 @@ Base URL: ${url}`
         'emploi': 'emploi', 'formation': 'formation', 'evenementiel': 'evenementiel'
       }
 
-      const categorySlug = categoryMap[ad.category?.toLowerCase()] || 'vente'
-
-      const categoriesSnapshot = await getDocs(query(collection(firestore, 'categories'), where('slug', '==', categorySlug), limit(1)))
-      const catId = categoriesSnapshot.empty ? 'default' : categoriesSnapshot.docs[0].id
+      const slug = categoryMap[ad.category?.toLowerCase()] || 'vente'
+      const cats = await getDocs(query(collection(firestore, 'categories'), where('slug', '==', slug), limit(1)))
+      const catId = cats.empty ? 'default' : cats.docs[0].id
 
       const reclamCode = `REC-${Date.now()}-${Math.random().toString(36).substring(2, 8).toUpperCase()}`
 
-      const adData = {
-        title: ad.title || 'Sans titre',
+      const docRef = await addDoc(collection(firestore, 'ads'), {
+        title: ad.title,
         description: ad.description || '',
         price: ad.price || null,
         images: ad.images || [],
@@ -462,7 +399,7 @@ Base URL: ${url}`
         phone: ad.phone || '',
         whatsapp: ad.phone || '',
         categoryId: catId,
-        categorySlug,
+        categorySlug: slug,
         status: 'active',
         isPremium: false,
         isFeatured: false,
@@ -472,22 +409,14 @@ Base URL: ${url}`
         importedAt: new Date().toISOString(),
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString()
-      }
-
-      const docRef = await addDoc(collection(firestore, 'ads'), adData)
-
-      return NextResponse.json({
-        success: true,
-        adId: docRef.id,
-        reclamCode
       })
+
+      return NextResponse.json({ success: true, adId: docRef.id, reclamCode })
     }
 
-    // Action: Import en masse
+    // BULK IMPORT
     if (action === 'bulk-import') {
-      if (!ads || !Array.isArray(ads)) {
-        return NextResponse.json({ error: 'Liste requise' }, { status: 400 })
-      }
+      if (!ads) return NextResponse.json({ error: 'Liste requise' }, { status: 400 })
 
       const results = []
       const categoryMap: Record<string, string> = {
@@ -496,28 +425,25 @@ Base URL: ${url}`
         'emploi': 'emploi', 'formation': 'formation', 'evenementiel': 'evenementiel'
       }
 
-      const categoriesSnapshot = await getDocs(collection(firestore, 'categories'))
-      const categoryIds: Record<string, string> = {}
-      categoriesSnapshot.docs.forEach(doc => {
-        categoryIds[doc.data().slug] = doc.id
-      })
+      const cats = await getDocs(collection(firestore, 'categories'))
+      const catIds: Record<string, string> = {}
+      cats.docs.forEach(d => { catIds[d.data().slug] = d.id })
 
       for (const ad of ads) {
         try {
-          const categorySlug = categoryMap[ad.category?.toLowerCase()] || 'vente'
-          const catId = categoryIds[categorySlug] || 'default'
+          const slug = categoryMap[ad.category?.toLowerCase()] || 'vente'
           const reclamCode = `REC-${Date.now()}-${Math.random().toString(36).substring(2, 8).toUpperCase()}`
 
-          const adData = {
-            title: ad.title || 'Sans titre',
+          const docRef = await addDoc(collection(firestore, 'ads'), {
+            title: ad.title,
             description: ad.description || '',
             price: ad.price || null,
             images: ad.images || [],
             city: ad.city || 'Dakar',
             phone: ad.phone || '',
             whatsapp: ad.phone || '',
-            categoryId: catId,
-            categorySlug,
+            categoryId: catIds[slug] || 'default',
+            categorySlug: slug,
             status: 'active',
             isPremium: false,
             isFeatured: false,
@@ -527,9 +453,7 @@ Base URL: ${url}`
             importedAt: new Date().toISOString(),
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString()
-          }
-
-          const docRef = await addDoc(collection(firestore, 'ads'), adData)
+          })
           results.push({ title: ad.title, success: true, adId: docRef.id })
         } catch {
           results.push({ title: ad.title, success: false })
@@ -545,10 +469,10 @@ Base URL: ${url}`
       })
     }
 
-    // Action: Chat
+    // CHAT
     if (action === 'chat') {
       const { message } = body
-      const response = await callAI(message, 'Tu es l\'assistant AlloSN. Réponds en français.')
+      const response = await callAI(message, 'Tu es l\'assistant AlloSN.')
       return NextResponse.json({ success: true, response: response || 'Erreur' })
     }
 
