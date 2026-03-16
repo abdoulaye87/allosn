@@ -3,53 +3,95 @@
 import { useEffect, useState } from 'react'
 import MobileHeader from '@/components/layout/MobileHeader'
 import BottomNav from '@/components/layout/BottomNav'
-import SearchBar from '@/components/home/SearchBar'
 import CategoriesGrid from '@/components/home/CategoriesGrid'
 import FeaturedAds from '@/components/home/FeaturedAds'
-import { Sparkles, TrendingUp, ChevronRight, Zap, Car, Wrench, Users, ArrowRight } from 'lucide-react'
+import { Search, Sparkles, TrendingUp, ChevronRight, Zap, Users, Wrench, ArrowRight, X } from 'lucide-react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 
 export default function Home() {
+  const router = useRouter()
+  const [searchQuery, setSearchQuery] = useState('')
   const [isSeeded, setIsSeeded] = useState(false)
 
   useEffect(() => {
-    // Seed Firebase database on first load
     fetch('/api/firebase-seed')
       .then(res => res.json())
-      .then(data => {
-        if (data.success) setIsSeeded(true)
-      })
+      .then(data => { if (data.success) setIsSeeded(true) })
       .catch(console.error)
   }, [])
+
+  const handleSearch = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (searchQuery.trim()) {
+      router.push(`/recherche?q=${encodeURIComponent(searchQuery)}`)
+    }
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 pb-20">
       <MobileHeader />
 
-      <main className="px-4 py-4 space-y-6">
-        {/* Hero Section */}
-        <div className="bg-gradient-to-br from-orange-500 via-orange-600 to-orange-700 rounded-3xl p-6 text-white relative overflow-hidden">
-          <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/2" />
-          <div className="absolute bottom-0 left-0 w-24 h-24 bg-white/10 rounded-full translate-y-1/2 -translate-x-1/2" />
-          
-          <div className="relative z-10">
-            <h1 className="text-2xl font-bold mb-1">
-              Bienvenue sur AlloSN
-            </h1>
-            <p className="text-orange-100 text-sm mb-4">
-              La plateforme tout-en-un du Sénégal
-            </p>
-            
-            <Link href="/publier" className="inline-flex items-center gap-2 bg-white text-orange-600 font-semibold px-5 py-2.5 rounded-xl shadow-lg hover:shadow-xl transition-all active:scale-95">
-              <Zap className="h-4 w-4" />
-              Publier une annonce
-            </Link>
-          </div>
-        </div>
+      <main className="px-4 py-4 space-y-5">
+        {/* 🔥 SEARCH BAR - CENTRAL & TRES VISIBLE */}
+        <section className="bg-white rounded-3xl shadow-lg p-6 -mt-2">
+          <h1 className="text-center text-2xl font-bold text-gray-800 mb-1">
+            Que recherchez-vous ?
+          </h1>
+          <p className="text-center text-gray-500 text-sm mb-5">
+            Trouvez ce dont vous avez besoin au Sénégal
+          </p>
 
-        {/* 🔥 FEATURED: Covoiturage & Services - TRES VISIBLES */}
-        <section className="space-y-3">
-          <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+          <form onSubmit={handleSearch} className="relative">
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Rechercher une annonce, un service..."
+              className="w-full bg-gray-100 border-2 border-gray-200 focus:border-orange-500 rounded-2xl px-5 py-4 pl-12 pr-24 text-base focus:outline-none focus:ring-4 focus:ring-orange-500/20 transition-all"
+            />
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
+            <button
+              type="submit"
+              className="absolute right-2 top-1/2 -translate-y-1/2 bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-xl font-medium text-sm transition-colors"
+            >
+              Rechercher
+            </button>
+          </form>
+
+          {/* Quick tags */}
+          <div className="flex flex-wrap gap-2 mt-4 justify-center">
+            {['Covoiturage', 'Plombier', 'Immobilier', 'Voiture', 'Emploi'].map((tag) => (
+              <Link
+                key={tag}
+                href={`/recherche?q=${tag}`}
+                className="px-3 py-1.5 bg-orange-50 text-orange-600 rounded-full text-sm hover:bg-orange-100 transition-colors"
+              >
+                {tag}
+              </Link>
+            ))}
+          </div>
+        </section>
+
+        {/* Hero compact */}
+        <section className="flex items-center justify-between bg-gradient-to-r from-orange-500 to-orange-600 rounded-2xl p-4 text-white">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center">
+              <Zap className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="font-semibold text-sm">Bienvenue sur AlloSN</p>
+              <p className="text-orange-100 text-xs">Publiez votre annonce gratuitement</p>
+            </div>
+          </div>
+          <Link href="/publier" className="bg-white text-orange-600 px-4 py-2 rounded-xl font-semibold text-sm hover:bg-orange-50 active:scale-95 transition-all">
+            Publier
+          </Link>
+        </section>
+
+        {/* 🔥 Covoiturage & Services - POPULAIRES */}
+        <section>
+          <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2 mb-3">
             <Sparkles className="h-5 w-5 text-orange-500" />
             Populaires
           </h2>
@@ -92,9 +134,6 @@ export default function Home() {
             </Link>
           </div>
         </section>
-
-        {/* Search Bar */}
-        <SearchBar />
 
         {/* Categories */}
         <section>
@@ -152,36 +191,6 @@ export default function Home() {
                 {city}
               </Link>
             ))}
-          </div>
-        </section>
-
-        {/* All Cities Link */}
-        <section className="bg-gradient-to-r from-blue-500 to-indigo-600 rounded-2xl p-4 text-white">
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="font-bold">Toutes les villes du Sénégal</h3>
-              <p className="text-blue-100 text-sm mt-1">14 régions, 46 départements</p>
-            </div>
-            <Link href="/villes">
-              <button className="bg-white text-blue-600 hover:bg-blue-50 px-4 py-2 rounded-xl font-medium text-sm">
-                Explorer
-              </button>
-            </Link>
-          </div>
-        </section>
-
-        {/* App Download Banner */}
-        <section className="bg-gradient-to-r from-green-500 to-green-600 rounded-2xl p-4 text-white">
-          <div className="flex items-center gap-4">
-            <div className="flex-1">
-              <h3 className="font-bold mb-1">Bientôt disponible</h3>
-              <p className="text-green-100 text-sm">
-                Application mobile Android & iOS
-              </p>
-            </div>
-            <div className="bg-white/20 rounded-xl px-4 py-2 text-sm font-medium">
-              Bientôt
-            </div>
           </div>
         </section>
 
