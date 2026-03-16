@@ -32,12 +32,13 @@ async function callAI(prompt: string, systemPrompt: string): Promise<string> {
           { role: 'user', content: prompt }
         ],
         temperature: 0.1,
-        max_tokens: 8000
+        max_tokens: 4000
       })
     })
 
     if (!response.ok) {
-      throw new Error('AI API error')
+      console.error('AI API error:', response.status)
+      return ''
     }
 
     const data = await response.json()
@@ -54,100 +55,64 @@ async function scrapeWebPage(url: string): Promise<string> {
     const response = await fetch(url, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
         'Accept-Language': 'fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7',
-        'Accept-Encoding': 'gzip, deflate',
+        'Accept-Encoding': 'gzip, deflate, br',
         'Connection': 'keep-alive',
-        'Cache-Control': 'no-cache',
+        'Upgrade-Insecure-Requests': '1',
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'none',
+        'Sec-Fetch-User': '?1',
+        'Cache-Control': 'max-age=0',
       },
       redirect: 'follow'
     })
     
     if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`)
+      console.error(`HTTP ${response.status} for ${url}`)
+      return ''
     }
     
     return await response.text()
   } catch (error: any) {
-    console.error('Scrape error:', error)
+    console.error('Scrape error:', error.message)
     return ''
   }
 }
 
-// Extraire les liens d'annonces - AMÉLIORÉ pour expat-dakar.com
+// Extraire les liens d'annonces
 function extractAdLinksFromListing(html: string, baseUrl: string): string[] {
   const links: Set<string> = new Set()
   const base = new URL(baseUrl)
-  
-  console.log('Extracting ad links from:', baseUrl)
 
-  // Patterns spécifiques pour expat-dakar.com
-  const expatPatterns = [
-    // Format: /annonce/titre-id
+  // Patterns pour expat-dakar.com
+  const patterns = [
     /href=["'](\/annonce\/[^"']+)["']/gi,
-    // Format: href=".../annonces/..." (pas les pages de liste)
-    /href=["']([^"']*\/annonce\/[^"']+\d{4,}[^"']*)["']/gi,
-    // Format avec ID numérique
-    /href=["']([^"']*-\d{5,}[^"']*)["']/gi,
-    // Format data-href
+    /href=["']([^"']*\/annonce\/[^"']+\d{5,}[^"']*)["']/gi,
     /data-href=["'](\/annonce\/[^"']+)["']/gi,
-    // Format onclick
-    /onclick=["'][^"']*location\.href=['"]([^'"]+)['"]/gi,
   ]
 
-  // Patterns génériques
-  const genericPatterns = [
-    /href=["']([^"']*\/annonce[^"']*)["']/gi,
-    /href=["']([^"']*\/ad[^"']*)["']/gi,
-    /href=["']([^"']*\/listing[^"']*)["']/gi,
-    /href=["']([^"']*\/offer[^"']*)["']/gi,
-    /href=["']([^"']*\/item[^"']*)["']/gi,
-    /href=["']([^"']*\/detail[^"']*)["']/gi,
-  ]
-
-  // Combiner tous les patterns
-  const allPatterns = [...expatPatterns, ...genericPatterns]
-
-  for (const pattern of allPatterns) {
+  for (const pattern of patterns) {
     try {
       const matches = html.matchAll(pattern)
       for (const match of matches) {
         let link = match[1]
         
-        // Nettoyer le lien
         link = link.replace(/&amp;/g, '&')
         link = link.split('#')[0]
         
-        // Ignorer les liens de navigation/pagination
-        if (link.includes('page=') || 
-            link.includes('/page/') ||
-            link.includes('?sort=') ||
-            link.includes('/login') ||
-            link.includes('/register') ||
-            link.includes('/contact') ||
-            link.length < 10) {
+        if (link.includes('page=') || link.includes('/page/') || link.length < 10) {
           continue
         }
         
-        // Convertir en URL absolue
         if (link.startsWith('/')) {
           link = `${base.origin}${link}`
         } else if (!link.startsWith('http')) {
           link = `${base.origin}/${link}`
         }
         
-        // Vérifier que c'est bien un lien d'annonce (contient un ID ou un slug long)
-        const isAdLink = 
-          link.includes('/annonce') ||
-          link.includes('/ad/') ||
-          link.includes('/listing') ||
-          link.includes('/offer') ||
-          link.includes('/item') ||
-          link.includes('/detail') ||
-          /-\d{5,}/.test(link) || // ID numérique dans l'URL
-          /\/\d{5,}/.test(link)   // ID numérique à la fin
-          
-        if (isAdLink) {
+        if (link.includes('/annonce') && !link.includes('/annonces?')) {
           links.add(link)
         }
       }
@@ -156,233 +121,286 @@ function extractAdLinksFromListing(html: string, baseUrl: string): string[] {
     }
   }
 
-  // Si on n'a pas trouvé de liens, essayer d'extraire avec l'IA
-  if (links.size === 0) {
-    console.log('No links found with patterns, will try AI extraction')
-  }
-
-  console.log(`Found ${links.size} unique ad links`)
   return Array.from(links)
 }
 
-// Extraire les détails d'une annonce individuelle
-async function extractAdDetails(html: string, url: string): Promise<DetailedAd | null> {
-  const textContent = html
-    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
-    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
-    .replace(/<nav[^>]*>[\s\S]*?<\/nav>/gi, '')
-    .replace(/<footer[^>]*>[\s\S]*?<\/footer>/gi, '')
-    .replace(/<header[^>]*>[\s\S]*?<\/header>/gi, '')
-    .replace(/<aside[^>]*>[\s\S]*?<\/aside>/gi, '')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/\s+/g, ' ')
-    .substring(0, 20000)
-
-  // Extraire les images
-  const imageUrls: string[] = []
-  const imgPatterns = [
-    /<img[^>]+src=["']([^"']+\.(jpg|jpeg|png|webp|gif)[^"']*)["']/gi,
-    /<img[^>]+data-src=["']([^"']+\.(jpg|jpeg|png|webp|gif)[^"']*)["']/gi,
-    /data-lazy-src=["']([^"']+\.(jpg|jpeg|png|webp|gif)[^"']*)["']/gi,
-    /background-image:\s*url\(["']?([^"')]+)["']?\)/gi,
+// Extraire les images du HTML
+function extractImages(html: string, url: string): string[] {
+  const images: string[] = []
+  const base = new URL(url)
+  
+  // Patterns pour les images
+  const patterns = [
+    /<img[^>]+src=["']([^"']+)["']/gi,
+    /<img[^>]+data-src=["']([^"']+)["']/gi,
+    /data-lazy-src=["']([^"']+)["']/gi,
+    /srcset=["']([^"']+)["']/gi,
   ]
   
-  for (const pattern of imgPatterns) {
+  for (const pattern of patterns) {
     const matches = html.matchAll(pattern)
     for (const match of matches) {
       let imgUrl = match[1]
+      
+      // Prendre la première image du srcset
+      if (imgUrl.includes(' ')) {
+        imgUrl = imgUrl.split(' ')[0]
+      }
+      
       if (imgUrl.startsWith('//')) {
         imgUrl = 'https:' + imgUrl
       } else if (imgUrl.startsWith('/')) {
-        try {
-          const baseUrl = new URL(url)
-          imgUrl = `${baseUrl.origin}${imgUrl}`
-        } catch {}
+        imgUrl = `${base.origin}${imgUrl}`
       }
-      // Filtrer les images non pertinentes
-      if (!imgUrl.includes('placeholder') && 
-          !imgUrl.includes('logo') && 
+      
+      // Filtrer
+      const ext = imgUrl.toLowerCase()
+      if ((ext.includes('.jpg') || ext.includes('.jpeg') || ext.includes('.png') || ext.includes('.webp')) &&
+          !imgUrl.includes('logo') &&
           !imgUrl.includes('avatar') &&
           !imgUrl.includes('icon') &&
           !imgUrl.includes('banner') &&
           !imgUrl.includes('pub') &&
           !imgUrl.includes('ads/') &&
           imgUrl.length > 20) {
-        imageUrls.push(imgUrl)
+        images.push(imgUrl)
       }
     }
   }
-
-  // Utiliser l'IA pour extraire les informations
-  const extractionPrompt = `Tu es un expert en extraction de données d'annonces classées sénégalaises.
-
-Analyse ce contenu d'annonce et extrait les informations:
-
-CONTENU:
-${textContent}
-
-URL: ${url}
-
-Extrait précisément:
-1. **title**: Le titre exact
-2. **description**: Description complète
-3. **price**: Prix en NOMBRE SEUL (ex: 150000). Si pas de prix, null.
-4. **city**: Ville (Dakar, Thiès, Saint-Louis, etc.)
-5. **phone**: Numéro de téléphone (format: 77/78/76/70 XXX XX XX). Cherche partout, même dans les boutons.
-6. **category**: Catégorie: immobilier, services, transport, vente, restauration, location, emploi, formation, evenementiel
-7. **professionalName**: Nom de l'annonceur/agence
-8. **address**: Adresse précise
-
-IMPORTANT: Le téléphone est souvent caché. Cherche les patterns 77/78/76/70 suivis de 6 chiffres.
-
-JSON uniquement:
-{"title":"...","description":"...","price":N,"city":"...","phone":"...","category":"...","professionalName":"...","address":"..."}`
-
-  const responseText = await callAI(extractionPrompt, 'Tu extrais des données d\'annonces. Réponds UNIQUEMENT en JSON valide.')
   
-  if (!responseText) {
-    return null
-  }
-
-  try {
-    const jsonMatch = responseText.match(/\{[\s\S]*\}/)
-    if (jsonMatch) {
-      const data = JSON.parse(jsonMatch[0])
-      
-      return {
-        title: data.title || 'Sans titre',
-        description: data.description || '',
-        price: data.price || null,
-        city: data.city || '',
-        phone: data.phone || '',
-        images: [...new Set(imageUrls)].slice(0, 10),
-        category: data.category || 'vente',
-        url: url,
-        professionalName: data.professionalName || '',
-        address: data.address || ''
-      }
-    }
-  } catch (e) {
-    console.error('Parse error:', e)
-  }
-  
-  return null
+  return [...new Set(images)].slice(0, 10)
 }
 
-// Extraire les liens avec l'IA si les patterns échouent
-async function extractLinksUsingAI(html: string, baseUrl: string): Promise<string[]> {
-  const textContent = html
-    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
-    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/\s+/g, ' ')
-    .substring(0, 15000)
-
-  const prompt = `Analyse ce contenu HTML et trouve TOUS les liens vers des annonces individuelles.
-
-Contenu de la page: ${textContent}
-URL de base: ${baseUrl}
-
-Retourne un JSON avec tous les liens d'annonces trouvés:
-{"links": ["url1", "url2", ...]}
-
-Les liens doivent être des URLs complètes vers des annonces individuelles (pas des pages de liste).`
-
-  const response = await callAI(prompt, 'Tu extrais des URLs. Réponds en JSON uniquement.')
-  
+// Extraire les détails d'une annonce - VERSION SIMPLIFIÉE
+async function extractAdDetails(html: string, url: string): Promise<DetailedAd | null> {
   try {
-    const jsonMatch = response.match(/\{[\s\S]*\}/)
-    if (jsonMatch) {
-      const data = JSON.parse(jsonMatch[0])
-      return data.links || []
+    // 1. Extraire le titre
+    let title = ''
+    const titleMatch = html.match(/<h1[^>]*>([^<]+)<\/h1>/i) ||
+                       html.match(/<title>([^<]+)<\/title>/i) ||
+                       html.match(/class=["'][^"']*title[^"']*["'][^>]*>([^<]+)</i)
+    if (titleMatch) {
+      title = titleMatch[1].trim().replace(/\s+/g, ' ')
     }
-  } catch {}
-  
-  return []
+
+    // 2. Extraire la description
+    let description = ''
+    const descMatch = html.match(/class=["'][^"']*description[^"']*["'][^>]*>([\s\S]*?)<\/(?:div|p|span)>/i) ||
+                      html.match(/id=["']description[^"']*["'][^>]*>([\s\S]*?)<\/div>/i) ||
+                      html.match(/<meta[^>]+name=["']description["'][^>]+content=["']([^"']+)["']/i)
+    if (descMatch) {
+      description = descMatch[1]
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .substring(0, 2000)
+    }
+
+    // 3. Extraire le prix
+    let price: number | null = null
+    const priceMatch = html.match(/(\d[\d\s\.]*)\s*(?:FCFA|CFA|F|€|EUR)/i) ||
+                       html.match(/prix[^<]*[:\s]+(\d[\d\s\.]*)/i) ||
+                       html.match(/(\d{4,})/)
+    if (priceMatch) {
+      price = parseInt(priceMatch[1].replace(/\s/g, '').replace(/\./g, ''))
+    }
+
+    // 4. Extraire le téléphone - IMPORTANT
+    let phone = ''
+    // Chercher les numéros sénégalais (77, 78, 76, 70, 75, 33)
+    const phonePatterns = [
+      /(7[0-8]\s?[\d\s]{7,9})/g,
+      /(33\s?[\d\s]{7,9})/g,
+      /(\+221\s?7[0-8][\d\s]{7})/g,
+      /(\+221\s?33[\d\s]{7})/g,
+      /tel:([0-9+\s]+)/gi,
+      /t[eé]l[^<]*[:\s]+([0-9\s]+)/i,
+    ]
+    
+    for (const pattern of phonePatterns) {
+      const matches = html.matchAll(pattern)
+      for (const match of matches) {
+        let p = match[1].replace(/\s/g, '')
+        if (p.length >= 9 && p.length <= 14) {
+          phone = p
+          break
+        }
+      }
+      if (phone) break
+    }
+
+    // 5. Extraire la ville/localisation
+    let city = ''
+    const cityMatch = html.match(/class=["'][^"']*(?:location|ville|city|localisation)[^"']*["'][^>]*>([^<]+)</i) ||
+                      html.match(/(?:ville|city|localisation)[^<]*[:\s]+([^<,\n]+)/i)
+    if (cityMatch) {
+      city = cityMatch[1].trim()
+    }
+
+    // 6. Extraire les images
+    const images = extractImages(html, url)
+
+    // 7. Si pas de titre trouvé, essayer avec l'IA
+    if (!title || title.length < 5) {
+      const textContent = html
+        .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+        .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/\s+/g, ' ')
+        .substring(0, 5000)
+
+      const aiPrompt = `Extrait les informations de cette annonce:
+
+${textContent}
+
+Retourne un JSON avec: title, description, price (nombre), city, phone, category (immobilier/services/transport/vente/location/emploi).
+
+JSON uniquement:
+{"title":"...","description":"...","price":N,"city":"...","phone":"...","category":"..."}`
+
+      const aiResponse = await callAI(aiPrompt, 'Tu extrais des données. JSON uniquement.')
+      
+      if (aiResponse) {
+        try {
+          const jsonMatch = aiResponse.match(/\{[\s\S]*\}/)
+          if (jsonMatch) {
+            const data = JSON.parse(jsonMatch[0])
+            title = data.title || title
+            description = data.description || description
+            price = data.price || price
+            city = data.city || city
+            phone = data.phone || phone
+          }
+        } catch {}
+      }
+    }
+
+    // Déterminer la catégorie
+    let category = 'vente'
+    const lowerHtml = html.toLowerCase()
+    if (lowerHtml.includes('appartement') || lowerHtml.includes('maison') || lowerHtml.includes('terrain') || lowerHtml.includes('immobilier')) {
+      category = 'immobilier'
+    } else if (lowerHtml.includes('voiture') || lowerHtml.includes('moto') || lowerHtml.includes('véhicule') || lowerHtml.includes('auto')) {
+      category = 'transport'
+    } else if (lowerHtml.includes('emploi') || lowerHtml.includes('recrutement') || lowerHtml.includes('travail')) {
+      category = 'emploi'
+    } else if (lowerHtml.includes('service') || lowerHtml.includes('prestation')) {
+      category = 'services'
+    }
+
+    // Vérifier qu'on a au minimum un titre
+    if (!title || title.length < 3) {
+      console.log('No title found for:', url)
+      return null
+    }
+
+    return {
+      title,
+      description,
+      price,
+      city,
+      phone,
+      images,
+      category,
+      url
+    }
+  } catch (error) {
+    console.error('Error extracting details:', error)
+    return null
+  }
 }
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { url, action, ads, maxPages, maxAds } = body
+    const { url, action, ads, maxAds } = body
 
-    // Action principale: Scraper avec entrée dans chaque annonce
+    // Action: Scraping en profondeur
     if (action === 'scrape-deep' || action === 'scrape-all') {
       if (!url) {
         return NextResponse.json({ error: 'URL requise' }, { status: 400 })
       }
 
-      const maxPagesToScrape = maxPages || 5
-      const maxAdsToScrape = maxAds || 30
+      const maxAdsToScrape = maxAds || 20
       const allAds: DetailedAd[] = []
-      let scrapedPages = 0
       const processedUrls = new Set<string>()
-      let allAdLinks: string[] = []
 
-      // Étape 1: Scraper la page de liste
+      // 1. Scraper la page de liste
+      console.log('Scraping listing page:', url)
       const listingHtml = await scrapeWebPage(url)
       if (!listingHtml) {
         return NextResponse.json({ error: 'Impossible d\'accéder à la page' }, { status: 400 })
       }
 
-      // Extraire les liens d'annonces
-      allAdLinks = extractAdLinksFromListing(listingHtml, url)
+      // 2. Extraire les liens
+      let adLinks = extractAdLinksFromListing(listingHtml, url)
+      console.log('Found links:', adLinks.length)
 
-      // Si pas de liens trouvés, essayer avec l'IA
-      if (allAdLinks.length === 0) {
-        console.log('Trying AI link extraction...')
-        allAdLinks = await extractLinksUsingAI(listingHtml, url)
-      }
+      // Si pas de liens, utiliser l'IA pour en trouver
+      if (adLinks.length === 0) {
+        const textContent = listingHtml.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').substring(0, 10000)
+        const aiPrompt = `Trouve tous les liens vers des annonces dans ce contenu. Retourne un JSON: {"links": ["url1", "url2"]}
 
-      // Dédupliquer et limiter
-      allAdLinks = [...new Set(allAdLinks)].slice(0, maxAdsToScrape)
+Contenu: ${textContent}
+Base URL: ${url}`
 
-      console.log(`Total unique ad links to scrape: ${allAdLinks.length}`)
-
-      // Étape 2: Scraper chaque annonce individuelle
-      for (let i = 0; i < allAdLinks.length; i++) {
-        const adUrl = allAdLinks[i]
-        
-        if (processedUrls.has(adUrl)) continue
-        processedUrls.add(adUrl)
-
-        console.log(`Scraping ad ${i + 1}/${allAdLinks.length}: ${adUrl}`)
-
-        try {
-          const adHtml = await scrapeWebPage(adUrl)
-          if (!adHtml) continue
-
-          const adDetails = await extractAdDetails(adHtml, adUrl)
-          if (adDetails && adDetails.title && adDetails.title !== 'Sans titre') {
-            allAds.push(adDetails)
-            console.log(`Successfully extracted: ${adDetails.title}`)
-          }
-          
-          // Petit délai
-          await new Promise(resolve => setTimeout(resolve, 300))
-          
-        } catch (error) {
-          console.error(`Error scraping ad ${adUrl}:`, error)
+        const aiResponse = await callAI(aiPrompt, 'JSON uniquement.')
+        if (aiResponse) {
+          try {
+            const jsonMatch = aiResponse.match(/\{[\s\S]*\}/)
+            if (jsonMatch) {
+              const data = JSON.parse(jsonMatch[0])
+              if (data.links && Array.isArray(data.links)) {
+                const base = new URL(url)
+                adLinks = data.links.map((l: string) => {
+                  if (l.startsWith('/')) return `${base.origin}${l}`
+                  return l
+                })
+              }
+            }
+          } catch {}
         }
       }
 
-      scrapedPages = 1
+      adLinks = [...new Set(adLinks)].slice(0, maxAdsToScrape)
+      console.log('Unique links to scrape:', adLinks.length)
+
+      // 3. Scraper chaque annonce
+      for (let i = 0; i < adLinks.length; i++) {
+        const adUrl = adLinks[i]
+        if (processedUrls.has(adUrl)) continue
+        processedUrls.add(adUrl)
+
+        console.log(`Scraping ${i + 1}/${adLinks.length}:`, adUrl)
+
+        const adHtml = await scrapeWebPage(adUrl)
+        if (!adHtml) {
+          console.log('Failed to fetch:', adUrl)
+          continue
+        }
+
+        const adDetails = await extractAdDetails(adHtml, adUrl)
+        if (adDetails) {
+          allAds.push(adDetails)
+          console.log('✅ Extracted:', adDetails.title)
+        } else {
+          console.log('❌ Failed to extract from:', adUrl)
+        }
+
+        await new Promise(resolve => setTimeout(resolve, 200))
+      }
 
       return NextResponse.json({
         success: true,
         siteName: new URL(url).hostname,
         totalFound: allAds.length,
-        totalPagesScraped: scrapedPages,
-        totalAdLinksFound: allAdLinks.length,
+        totalAdLinksFound: adLinks.length,
         ads: allAds,
-        sourceUrl: url,
-        debug: {
-          linksFound: allAdLinks.slice(0, 5)
-        }
+        sourceUrl: url
       })
     }
 
-    // Action: Scraper simple
+    // Action: Scraping simple
     if (action === 'scrape') {
       if (!url) {
         return NextResponse.json({ error: 'URL requise' }, { status: 400 })
@@ -394,29 +412,17 @@ export async function POST(request: NextRequest) {
       }
 
       let adLinks = extractAdLinksFromListing(html, url)
-      
-      // Fallback IA
-      if (adLinks.length === 0) {
-        adLinks = await extractLinksUsingAI(html, url)
-      }
-
-      // Scraper quelques annonces
       const ads: DetailedAd[] = []
-      const maxToScrape = Math.min(adLinks.length, 5)
-      
-      for (let i = 0; i < maxToScrape; i++) {
-        try {
-          const adHtml = await scrapeWebPage(adLinks[i])
-          if (adHtml) {
-            const adDetails = await extractAdDetails(adHtml, adLinks[i])
-            if (adDetails) {
-              ads.push(adDetails)
-            }
+
+      for (let i = 0; i < Math.min(adLinks.length, 5); i++) {
+        const adHtml = await scrapeWebPage(adLinks[i])
+        if (adHtml) {
+          const adDetails = await extractAdDetails(adHtml, adLinks[i])
+          if (adDetails) {
+            ads.push(adDetails)
           }
-          await new Promise(resolve => setTimeout(resolve, 300))
-        } catch (error) {
-          console.error('Error:', error)
         }
+        await new Promise(resolve => setTimeout(resolve, 200))
       }
 
       return NextResponse.json({
@@ -424,7 +430,7 @@ export async function POST(request: NextRequest) {
         siteName: new URL(url).hostname,
         totalFound: ads.length,
         totalLinksFound: adLinks.length,
-        ads: ads,
+        ads,
         sourceUrl: url,
         allAdLinks: adLinks.slice(0, 10)
       })
@@ -462,8 +468,6 @@ export async function POST(request: NextRequest) {
         isFeatured: false,
         views: 0,
         sourceUrl: ad.url || null,
-        professionalName: ad.professionalName || null,
-        address: ad.address || null,
         reclamCode,
         importedAt: new Date().toISOString(),
         createdAt: new Date().toISOString(),
@@ -475,8 +479,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({
         success: true,
         adId: docRef.id,
-        reclamCode,
-        message: 'Annonce créée'
+        reclamCode
       })
     }
 
@@ -520,8 +523,6 @@ export async function POST(request: NextRequest) {
             isFeatured: false,
             views: 0,
             sourceUrl: ad.url || null,
-            professionalName: ad.professionalName || null,
-            address: ad.address || null,
             reclamCode,
             importedAt: new Date().toISOString(),
             createdAt: new Date().toISOString(),
@@ -530,7 +531,7 @@ export async function POST(request: NextRequest) {
 
           const docRef = await addDoc(collection(firestore, 'ads'), adData)
           results.push({ title: ad.title, success: true, adId: docRef.id })
-        } catch (error) {
+        } catch {
           results.push({ title: ad.title, success: false })
         }
       }
@@ -547,15 +548,8 @@ export async function POST(request: NextRequest) {
     // Action: Chat
     if (action === 'chat') {
       const { message } = body
-      const systemPrompt = `Tu es l'assistant IA d'AlloSN. Tu aides à importer des annonces.
-Commandes: "scraper-deep [URL]" pour un scraping complet.`
-
-      const response = await callAI(message, systemPrompt)
-      
-      return NextResponse.json({
-        success: true,
-        response: response || 'Erreur'
-      })
+      const response = await callAI(message, 'Tu es l\'assistant AlloSN. Réponds en français.')
+      return NextResponse.json({ success: true, response: response || 'Erreur' })
     }
 
     return NextResponse.json({ error: 'Action inconnue' }, { status: 400 })
